@@ -312,7 +312,7 @@ The official Chinese model channels call each vendor's OpenAI-compatible API, so
 | :--- | :--- | :--- | :--- |
 | MiniMax | [MiniMax platform](https://platform.minimax.io) | `https://api.minimax.cn/v1` (international `https://api.minimax.io/v1`) | `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | **Free account**, browser sign-in; see [below](#minimax-code-oauth) | Fixed endpoint | `MiniMax-M3.1-Flash` |
-| Zhipu GLM | [Z.ai platform](https://z.ai) | `https://open.bigmodel.cn/api/paas/v4` (international `https://api.z.ai/api/paas/v4`) | `glm-5.3-flash` |
+| Zhipu GLM | [Z.ai platform](https://z.ai) | `https://open.bigmodel.cn/api/paas/v4` (international `https://api.z.ai/api/paas/v4`) | `glm-5.3-flash`, with `reasoning_effort: low` by default (deep thinking by default slows image analysis to minutes) |
 | DeepSeek | [DeepSeek platform](https://platform.deepseek.com) | `https://api.deepseek.com` | `deepseek-v4-flash` |
 | Kimi | [Kimi platform](https://platform.kimi.com) | `https://api.moonshot.cn/v1` (international `https://api.moonshot.ai/v1`) | `kimi-k3.1-pro` |
 | Qwen | [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com), Token Plan recommended | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` (pay-as-you-go `https://dashscope.aliyuncs.com/compatible-mode/v1`) | `qwen3.8-max` |

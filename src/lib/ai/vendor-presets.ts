@@ -12,6 +12,8 @@ export interface VendorPreset {
     consoleUrl: string;  // 获取 API Key 的控制台
     /** 官方接入文档：国内站与国际站（只有一个入口时只填 cn），以及获取 API Key 的说明和模型列表 */
     docs: { cn: string; intl?: string; apiKey: string; models: string };
+    /** 思考型模型的默认思考力度：GLM 系列始终思考，默认 high 会把图片识别拖慢到分钟级，low 足够完成结构化提取 */
+    reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 export const VENDOR_PRESETS = {
@@ -29,6 +31,7 @@ export const VENDOR_PRESETS = {
         nameEn: 'Zhipu GLM',
         baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
         model: 'glm-5.3-flash',
+        reasoningEffort: 'low',
         envPrefix: 'GLM',
         consoleUrl: 'https://open.bigmodel.cn',
         docs: { cn: 'https://docs.bigmodel.cn/cn/guide/start/quick-start', intl: 'https://docs.z.ai/guides/overview/quick-start', apiKey: 'https://docs.bigmodel.cn/cn/guide/start/quick-start', models: 'https://docs.bigmodel.cn/cn/guide/start/model-overview' },
@@ -121,6 +124,8 @@ export interface VendorConfig {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    /** 覆盖预设的思考力度；未填时用渠道预设的默认值 */
+    reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 /** 按界面语言取渠道的显示名称 */
@@ -133,12 +138,13 @@ export function isVendorProvider(provider: unknown): provider is VendorProviderI
     return typeof provider === 'string' && Object.prototype.hasOwnProperty.call(VENDOR_PRESETS, provider);
 }
 
-/** 未填写的地址和模型使用官方默认值 */
-export function resolveVendorConfig(provider: VendorProviderId, config?: VendorConfig): Required<VendorConfig> {
+/** 未填写的地址和模型使用官方默认值（思考力度可缺省，仅思考型渠道的预设带默认值） */
+export function resolveVendorConfig(provider: VendorProviderId, config?: VendorConfig): Required<Omit<VendorConfig, 'reasoningEffort'>> & Pick<VendorConfig, 'reasoningEffort'> {
     const preset = VENDOR_PRESETS[provider];
     return {
         apiKey: config?.apiKey || '',
         baseUrl: config?.baseUrl || preset.baseUrl,
         model: config?.model || preset.model,
+        reasoningEffort: config?.reasoningEffort || preset.reasoningEffort,
     };
 }

@@ -118,6 +118,8 @@ export interface AIConfig {
     authToken?: string;
     baseUrl?: string;
     model?: string;
+    /** 思考型模型的思考力度（如 GLM 的 low），未设置时不发送该参数 */
+    reasoningEffort?: 'low' | 'medium' | 'high';
     // Azure OpenAI 特有字段
     azureDeployment?: string;   // Azure 部署名称
     azureApiVersion?: string;   // API 版本 (如 2024-02-15-preview)

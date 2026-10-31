@@ -34,10 +34,10 @@ import type { VendorProviderId } from '@/lib/ai/vendor-presets';
 import { POST as listModels } from '@/app/api/ai/models/route';
 import { POST as testConnection } from '@/app/api/ai/test/route';
 
-// 各渠道的官方 OpenAI 兼容地址与默认模型
-const EXPECTED: Record<VendorProviderId, { baseUrl: string; model: string }> = {
+// 各渠道的官方 OpenAI 兼容地址与默认模型（思考型渠道附默认思考力度）
+const EXPECTED: Record<VendorProviderId, { baseUrl: string; model: string; reasoningEffort?: 'low' | 'medium' | 'high' }> = {
     minimax: { baseUrl: 'https://api.minimax.cn/v1', model: 'MiniMax-M3.1-Flash' },
-    glm: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3-flash' },
+    glm: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3-flash', reasoningEffort: 'low' },
     deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
     kimi: { baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k3.1-pro' },
     qwen: { baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max' },
@@ -85,8 +85,9 @@ describe.each(VENDOR_PROVIDER_IDS)('%s 渠道', (id) => {
     it('默认使用官方地址与最新模型', () => {
         expect(VENDOR_PRESETS[id]).toMatchObject(EXPECTED[id]);
         expect(resolveVendorConfig(id, { apiKey: 'k' })).toEqual({ apiKey: 'k', ...EXPECTED[id] });
+        // 覆盖地址和模型时仍沿用渠道默认的思考力度（换代理不换模型家族）
         expect(resolveVendorConfig(id, { apiKey: 'k', baseUrl: 'https://proxy.example.com/v1', model: 'custom' }))
-            .toEqual({ apiKey: 'k', baseUrl: 'https://proxy.example.com/v1', model: 'custom' });
+            .toEqual({ apiKey: 'k', baseUrl: 'https://proxy.example.com/v1', model: 'custom', reasoningEffort: EXPECTED[id].reasoningEffort });
     });
 
     it('选中该渠道时通过 OpenAI 兼容接口调用官方地址和默认模型', async () => {

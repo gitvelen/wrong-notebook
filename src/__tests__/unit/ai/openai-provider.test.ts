@@ -200,6 +200,30 @@ describe('OpenAI Provider 响应解析', () => {
     });
 });
 
+describe('OpenAI Provider 思考力度参数', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('配置 reasoningEffort 时对话补全请求带 reasoning_effort', async () => {
+        const provider = new OpenAIProvider({ apiKey: 'k', model: 'glm-5.3-flash', reasoningEffort: 'low' });
+        mockCompletionCreate.mockResolvedValue({ choices: [{ finish_reason: 'stop', message: { content: '{"tags": ["加法"], "difficultyStars": 1}' } }] });
+
+        await provider.suggestKnowledgeTags({ questionText: '1+1=?', subject: '数学', allowedTags: ['加法'] });
+
+        expect(mockCompletionCreate.mock.calls[0][0]).toMatchObject({ model: 'glm-5.3-flash', reasoning_effort: 'low' });
+    });
+
+    it('未配置时不发送 reasoning_effort', async () => {
+        const provider = new OpenAIProvider({ apiKey: 'k', model: 'gpt-4o' });
+        mockCompletionCreate.mockResolvedValue({ choices: [{ finish_reason: 'stop', message: { content: '{"tags": ["加法"], "difficultyStars": 1}' } }] });
+
+        await provider.suggestKnowledgeTags({ questionText: '1+1=?', subject: '数学', allowedTags: ['加法'] });
+
+        expect(mockCompletionCreate.mock.calls[0][0]).not.toHaveProperty('reasoning_effort');
+    });
+});
+
 describe('OpenAI Provider 重新解题错因同步', () => {
     let provider: OpenAIProvider;
 

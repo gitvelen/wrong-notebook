@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { ChatCompletion } from "openai/resources/chat/completions";
+import type { ChatCompletion, ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import { AIService, GradeLevel, ParsedQuestion, DifficultyLevel, AIConfig, ReanswerQuestionResult, GeogebraAnalysisResult, MasteryEvaluationInput, MasteryEvaluationResult, AnswerGradingInput, AnswerGradingResult, TagSuggestionInput, TagSuggestionResult, CandidateTags, FigureResult } from "./types";
 import { generateAnalyzePrompt, generateSimilarQuestionPrompt, generateGeogebraPrompt, generateMasteryPrompt, generateGradingPrompt, generateTagSuggestPrompt, generateFigurePrompt, generateSvgAnimationPrompt, generateSvgNarrationPrompt, generateLatexFixPrompt, SVG_ANIMATION_REQUEST, SVG_NARRATION_REQUEST } from './prompts';
 import { parseNarration, sanitizeSvgAnimation } from '../svg-animation';
@@ -40,6 +40,7 @@ export class OpenAIProvider implements AIService {
     private baseURL: string;
     private apiKey: string;
     private isLongCat: boolean;
+    private reasoningEffort?: 'low' | 'medium' | 'high';
 
     constructor(config?: AIConfig) {
         const apiKey = config?.apiKey;
@@ -61,6 +62,7 @@ export class OpenAIProvider implements AIService {
         this.baseURL = baseURL || 'https://api.openai.com/v1';
         this.apiKey = apiKey;
         this.isLongCat = this.baseURL.includes('longcat.chat');
+        this.reasoningEffort = config?.reasoningEffort;
 
         logger.info({
             provider: 'OpenAI',
@@ -68,6 +70,15 @@ export class OpenAIProvider implements AIService {
             baseURL: this.baseURL,
             apiKeyPrefix: apiKey.substring(0, 8) + '...'
         }, 'AI Provider initialized');
+    }
+
+    /** 所有对话补全的统一入口：为思考型模型附加 reasoning_effort（如 GLM 的 low），
+     *  避免默认深思考把耗时拉长到分钟级甚至耗尽 max_tokens（识别题目的结构化输出并不需要长思考） */
+    private chatCompletion(body: ChatCompletionCreateParamsNonStreaming) {
+        return this.openai.chat.completions.create({
+            ...body,
+            ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
+        });
     }
 
     private adaptMessagesForLongCat(messages: LongCatMessage[]): LongCatMessage[] {
@@ -271,7 +282,7 @@ export class OpenAIProvider implements AIService {
 
                 response = await res.json() as ChatCompletion;
             } else {
-                response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+                response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                     model: this.model,
                     messages: [
                         {
@@ -345,7 +356,7 @@ export class OpenAIProvider implements AIService {
         logger.box('📝 User Prompt', userPrompt);
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: systemPrompt },
@@ -416,7 +427,7 @@ export class OpenAIProvider implements AIService {
             };
             logger.debug({ requestParams }, 'Request parameters');
 
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -472,7 +483,7 @@ export class OpenAIProvider implements AIService {
         }, 'GeoGebra Analysis Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -523,7 +534,7 @@ export class OpenAIProvider implements AIService {
         }, 'Mastery Evaluation Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -548,7 +559,7 @@ export class OpenAIProvider implements AIService {
         logger.info({ provider: 'OpenAI' }, 'Answer Grading Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: generateGradingPrompt(input) },
@@ -579,7 +590,7 @@ export class OpenAIProvider implements AIService {
         }, 'Tag Suggestion Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -605,7 +616,7 @@ export class OpenAIProvider implements AIService {
         logger.info({ provider: 'OpenAI', model: this.model, imageSize: imageBase64.length }, 'Figure SVG Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -631,7 +642,7 @@ export class OpenAIProvider implements AIService {
         logger.info({ provider: 'OpenAI', model: this.model, fields: Object.keys(input) }, 'LaTeX Fix Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -657,7 +668,7 @@ export class OpenAIProvider implements AIService {
         logger.info({ provider: 'OpenAI', model: this.model, questionLength: questionText.length }, 'SVG Animation Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
@@ -683,7 +694,7 @@ export class OpenAIProvider implements AIService {
         logger.info({ provider: 'OpenAI', model: this.model, svgLength: svgAnimation.length }, 'SVG Narration Request');
 
         try {
-            const response = await withTruncationRetry((maxTokens) => this.openai.chat.completions.create({
+            const response = await withTruncationRetry((maxTokens) => this.chatCompletion({
                 model: this.model,
                 messages: [
                     { role: "system", content: prompt },
