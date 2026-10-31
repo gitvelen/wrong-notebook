@@ -140,7 +140,9 @@ export function isVendorProvider(provider: unknown): provider is VendorProviderI
 
 /** 未填写的地址和模型使用官方默认值（思考力度可缺省，仅思考型渠道的预设带默认值） */
 export function resolveVendorConfig(provider: VendorProviderId, config?: VendorConfig): Required<Omit<VendorConfig, 'reasoningEffort'>> & Pick<VendorConfig, 'reasoningEffort'> {
-    const preset = VENDOR_PRESETS[provider];
+    // VENDOR_PRESETS 是 as const 的字面量联合类型（多数渠道没有 reasoningEffort 键），
+    // 标注为接口类型后才能统一访问可选属性
+    const preset: VendorPreset = VENDOR_PRESETS[provider];
     return {
         apiKey: config?.apiKey || '',
         baseUrl: config?.baseUrl || preset.baseUrl,

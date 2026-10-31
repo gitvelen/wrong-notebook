@@ -1,16 +1,27 @@
 ARG NODE_IMAGE=node:24-alpine
 FROM ${NODE_IMAGE} AS base
 
+# 国内网络构建时可指定镜像源，默认为官方源，不影响 CI：
+#   --build-arg NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
+#   --build-arg ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn
+#   --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG ALPINE_MIRROR=
+ARG NPM_REGISTRY=
+
 # Install dependencies only when needed
 FROM base AS deps
+ARG ALPINE_MIRROR=
+ARG NPM_REGISTRY=
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
 # 测试与构建需要的系统包放在复制源码之前，源码变化时不必重新下载
-RUN apk add --no-cache libc6-compat python3 openssl bash
+RUN if [ -n "$ALPINE_MIRROR" ]; then sed -i "s#https://dl-cdn.alpinelinux.org#$ALPINE_MIRROR#g" /etc/apk/repositories; fi \
+    && apk add --no-cache libc6-compat python3 openssl bash
 WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json ./
-RUN npm ci
+# --registry 只影响下载源，不会改写 package-lock.json 中的地址
+RUN if [ -n "$NPM_REGISTRY" ]; then npm ci --no-audit --no-fund --registry="$NPM_REGISTRY"; else npm ci --no-audit --no-fund; fi
 
 # CI uses the same Node version and native dependencies as production builds.
 FROM deps AS ci
@@ -66,7 +77,9 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Install dependencies and create user
-RUN apk add --no-cache su-exec openssl \
+ARG ALPINE_MIRROR=
+RUN if [ -n "$ALPINE_MIRROR" ]; then sed -i "s#https://dl-cdn.alpinelinux.org#$ALPINE_MIRROR#g" /etc/apk/repositories; fi \
+    && apk add --no-cache su-exec openssl \
     && addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
