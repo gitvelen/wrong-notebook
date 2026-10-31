@@ -80,9 +80,13 @@ const httpsServer = https.createServer(options, (req, res) => {
         }
     });
 
-    // 客户端断开连接时，终止代理请求
-    req.on('close', () => {
-        proxyReq.destroy();
+    // 客户端在响应完成前断开连接时，终止代理请求。
+    // 注意监听 res 而不是 req：Node 16+ 中 IncomingMessage 的 close 在请求流结束时就触发
+    // （GET 请求 header 到达即结束），监听 req 会把尚未完成的代理请求立刻销毁，所有请求 502。
+    res.on('close', () => {
+        if (!res.writableEnded) {
+            proxyReq.destroy();
+        }
     });
 
     // 将请求体转发到代理
