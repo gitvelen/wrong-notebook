@@ -311,6 +311,7 @@ AI 设置、提示词、连接测试和模型列表只对管理员开放；普�
 | MiniMax | [MiniMax 开放平台](https://platform.minimax.cn) | `https://api.minimax.cn/v1`（国际站 `https://api.minimax.io/v1`） | `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | **免费账号**，网页登录，见[下文](#minimax-code-oauth) | 固定接口 | `MiniMax-M3.1-Flash` |
 | 智谱 GLM | [智谱开放平台](https://open.bigmodel.cn) | `https://open.bigmodel.cn/api/paas/v4`（国际站 `https://api.z.ai/api/paas/v4`） | `glm-5.3-flash`，默认 `reasoning_effort: low`（思考型模型默认深思考会把图片识别拖慢到分钟级） |
+| 智谱 GLM Coding Plan | [Z 计划](https://docs.bigmodel.cn/cn/guide/develop/claude/introduction)包月套餐 | `https://open.bigmodel.cn/api/coding/paas/v4`（不要改成 `api/paas/v4`，否则不计入套餐） | `glm-5.3`，默认 `reasoning_effort: low` |
 | DeepSeek | [DeepSeek 开放平台](https://platform.deepseek.com) | `https://api.deepseek.com` | `deepseek-v4-flash` |
 | Kimi | [Kimi 开放平台](https://platform.kimi.com) | `https://api.moonshot.cn/v1`（国际站 `https://api.moonshot.ai/v1`） | `kimi-k3.1-pro` |
 | 千问 Qwen | [阿里云百炼](https://bailian.console.aliyun.com)，推荐 Token Plan | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`（按量付费 `https://dashscope.aliyuncs.com/compatible-mode/v1`） | `qwen3.8-max` |
@@ -412,11 +413,12 @@ AI 设置、提示词、连接测试和模型列表只对管理员开放；普�
 
 | 环境变量 | 描述 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `AI_PROVIDER` | AI 提供商 | `minimax` | 可选 `minimax`、`minimax-code`、`glm`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`anthropic`、`azure`、`openai`、`gemini` |
+| `AI_PROVIDER` | AI 提供商 | `minimax` | 可选 `minimax`、`minimax-code`、`glm`、`glm-coding`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`anthropic`、`azure`、`openai`、`gemini` |
 | `MINIMAX_API_KEY` / `MINIMAX_BASE_URL` / `MINIMAX_MODEL` | MiniMax | 地址 `https://api.minimax.cn/v1`，模型 `MiniMax-M3.1-Flash` | 地址和模型可留空 |
 | `MINIMAX_CODE_MODEL` | MiniMax Code 模型 | `MiniMax-M3.1-Flash` | 账号在网页设置中登录，无需 API Key |
 | `MINIMAX_CODE_AUTO_CHECKIN` | MiniMax Code 每日自动签到 | `true` | 设为 `false` 关闭 |
 | `GLM_API_KEY` / `GLM_BASE_URL` / `GLM_MODEL` | 智谱 GLM | 地址 `https://open.bigmodel.cn/api/paas/v4`，模型 `glm-5.3-flash`（请求自动带 `reasoning_effort: low`） | 地址和模型可留空 |
+| `GLM_CODING_API_KEY` / `GLM_CODING_BASE_URL` / `GLM_CODING_MODEL` | 智谱 GLM Coding Plan | 地址 `https://open.bigmodel.cn/api/coding/paas/v4`，模型 `glm-5.3` | Z 计划包月套餐；不要改成 `api/paas/v4`（不计入套餐，会按量计费）；套餐不含语音合成 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek | 地址 `https://api.deepseek.com`，模型 `deepseek-v4-flash` | 地址和模型可留空 |
 | `KIMI_API_KEY` / `KIMI_BASE_URL` / `KIMI_MODEL` | Kimi | 地址 `https://api.moonshot.cn/v1`，模型 `kimi-k3.1-pro` | 地址和模型可留空 |
 | `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | 千问 Qwen | 地址 `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`（百炼 Token Plan），模型 `qwen3.8-max` | 按量付费的 Key 改填 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
@@ -476,7 +478,7 @@ AI 设置、提示词、连接测试和模型列表只对管理员开放；普�
 - **数据库**：[SQLite](https://www.sqlite.org/)（via [Prisma 5](https://www.prisma.io/)）
 - **样式**：[Tailwind CSS v4](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/)（shadcn/ui 风格组件）
 - **公式**：[KaTeX](https://katex.org/)（react-markdown + remark-math）
-- **AI**：MiniMax / MiniMax Code（网页登录）/ 智谱 GLM / DeepSeek / Kimi / 千问 Qwen / 阶跃星辰 StepFun / 火山引擎豆包（含 Agent Plan、Coding Plan、免费试用）/ Anthropic（及兼容接口）/ Azure OpenAI / OpenAI（及兼容接口）/ Google Gemini
+- **AI**：MiniMax / MiniMax Code（网页登录）/ 智谱 GLM（含 Coding Plan）/ DeepSeek / Kimi / 千问 Qwen / 阶跃星辰 StepFun / 火山引擎豆包（含 Agent Plan、Coding Plan、免费试用）/ Anthropic（及兼容接口）/ Azure OpenAI / OpenAI（及兼容接口）/ Google Gemini
 - **认证**：[NextAuth.js v4](https://next-auth.js.org/)
 - **测试**：Vitest（单元、集成）、Playwright（E2E）
 

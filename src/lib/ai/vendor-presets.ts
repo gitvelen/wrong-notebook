@@ -36,6 +36,17 @@ export const VENDOR_PRESETS = {
         consoleUrl: 'https://open.bigmodel.cn',
         docs: { cn: 'https://docs.bigmodel.cn/cn/guide/start/quick-start', intl: 'https://docs.z.ai/guides/overview/quick-start', apiKey: 'https://docs.bigmodel.cn/cn/guide/start/quick-start', models: 'https://docs.bigmodel.cn/cn/guide/start/model-overview' },
     },
+    // 智谱 GLM Coding Plan（Z 计划）套餐：专属地址 api/coding/paas/v4（用 api/paas/v4 不计入套餐，会按量计费），套餐不含语音合成
+    'glm-coding': {
+        name: '智谱 GLM Coding Plan',
+        nameEn: 'Zhipu GLM Coding Plan',
+        baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+        model: 'glm-5.3',
+        reasoningEffort: 'low',
+        envPrefix: 'GLM_CODING',
+        consoleUrl: 'https://open.bigmodel.cn',
+        docs: { cn: 'https://docs.bigmodel.cn/cn/guide/develop/claude/introduction', intl: 'https://docs.z.ai/guides/overview/quick-start', apiKey: 'https://docs.bigmodel.cn/cn/guide/start/quick-start', models: 'https://docs.bigmodel.cn/cn/guide/start/model-overview' },
+    },
     deepseek: {
         name: 'DeepSeek',
         nameEn: 'DeepSeek',

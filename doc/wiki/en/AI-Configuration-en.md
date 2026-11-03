@@ -18,6 +18,7 @@ AI settings, connection tests, model lists and prompt settings are admin-only. T
 | MiniMax | API key | Defaults to `https://api.minimax.cn/v1`; code default `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | Sign in to a MiniMax Code account on the settings page | Fixed endpoint `https://agent.minimax.cn/mavis/api/v1/llm`; code default `MiniMax-M3.1-Flash` |
 | Zhipu GLM | API key | Defaults to `https://open.bigmodel.cn/api/paas/v4`; code default `glm-5.3-flash`, with `reasoning_effort: low` sent automatically to keep thinking models fast |
+| Zhipu GLM Coding Plan | API key (monthly Coding Plan subscription) | Defaults to `https://open.bigmodel.cn/api/coding/paas/v4` (changing to `api/paas/v4` falls outside the plan and is billed per use); code default `glm-5.3`, with `reasoning_effort: low` sent automatically; the plan does not include TTS |
 | DeepSeek | API key | Defaults to `https://api.deepseek.com`; code default `deepseek-v4-flash` |
 | Kimi | API key | Defaults to `https://api.moonshot.cn/v1`; code default `kimi-k3.1-pro` |
 | Qwen | API key (Model Studio Token Plan recommended, starts with `sk-sp-`) | Defaults to the Token Plan URL `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`; pay-as-you-go keys use `https://dashscope.aliyuncs.com/compatible-mode/v1`; code default `qwen3.8-max` |
@@ -72,13 +73,14 @@ Animation narration is read by the browser's own voice (Web Speech) by default. 
 
 ## Environment variables
 
-`AI_PROVIDER` selects the provider. It defaults to `minimax` and accepts `minimax`, `minimax-code`, `glm`, `deepseek`, `kimi`, `qwen`, `stepfun`, `volcengine`, `volcengine-agent`, `volcengine-coding`, `volcengine-free`, `anthropic`, `azure`, `openai` and `gemini`.
+`AI_PROVIDER` selects the provider. It defaults to `minimax` and accepts `minimax`, `minimax-code`, `glm`, `glm-coding`, `deepseek`, `kimi`, `qwen`, `stepfun`, `volcengine`, `volcengine-agent`, `volcengine-coding`, `volcengine-free`, `anthropic`, `azure`, `openai` and `gemini`.
 
 | Provider | Variables |
 | --- | --- |
 | MiniMax | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL` |
 | MiniMax Code OAuth | `MINIMAX_CODE_MODEL`, `MINIMAX_CODE_AUTO_CHECKIN` (the account can only sign in from the web UI) |
 | Zhipu GLM | `GLM_API_KEY`, `GLM_BASE_URL`, `GLM_MODEL` |
+| Zhipu GLM Coding Plan | `GLM_CODING_API_KEY`, `GLM_CODING_BASE_URL`, `GLM_CODING_MODEL` |
 | DeepSeek | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` |
 | Kimi | `KIMI_API_KEY`, `KIMI_BASE_URL`, `KIMI_MODEL` |
 | Qwen | `QWEN_API_KEY`, `QWEN_BASE_URL`, `QWEN_MODEL` |
