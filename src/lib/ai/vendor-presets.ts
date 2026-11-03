@@ -41,7 +41,7 @@ export const VENDOR_PRESETS = {
         name: '智谱 GLM Coding Plan',
         nameEn: 'Zhipu GLM Coding Plan',
         baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
-        model: 'glm-5.3',
+        model: 'glm-5.3-flash',
         reasoningEffort: 'low',
         envPrefix: 'GLM_CODING',
         consoleUrl: 'https://open.bigmodel.cn',

@@ -18,7 +18,7 @@ AI 设置、连接测试、模型列表与提示词设置只向管理员开放�
 | MiniMax | API Key | 默认 `https://api.minimax.cn/v1`；代码默认 `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | 在设置页网页登录 MiniMax Code 账号 | 固定接口 `https://agent.minimax.cn/mavis/api/v1/llm`；代码默认 `MiniMax-M3.1-Flash` |
 | 智谱 GLM | API Key | 默认 `https://open.bigmodel.cn/api/paas/v4`；代码默认 `glm-5.3-flash`，请求自动带 `reasoning_effort: low` 避免思考型模型深思考拖慢识别 |
-| 智谱 GLM Coding Plan | API Key（Z 计划包月订阅） | 默认 `https://open.bigmodel.cn/api/coding/paas/v4`（改成 `api/paas/v4` 不计入套餐、按量计费）；代码默认 `glm-5.3`，请求自动带 `reasoning_effort: low`；套餐不含语音合成 |
+| 智谱 GLM Coding Plan | API Key（Z 计划包月订阅） | 默认 `https://open.bigmodel.cn/api/coding/paas/v4`（改成 `api/paas/v4` 不计入套餐、按量计费）；代码默认 `glm-5.3-flash`，请求自动带 `reasoning_effort: low`；套餐不含语音合成 |
 | DeepSeek | API Key | 默认 `https://api.deepseek.com`；代码默认 `deepseek-v4-flash` |
 | Kimi | API Key | 默认 `https://api.moonshot.cn/v1`；代码默认 `kimi-k3.1-pro` |
 | 千问 Qwen | API Key（推荐百炼 Token Plan，以 `sk-sp-` 开头） | 默认 Token Plan 地址 `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，按量付费的 Key 改填 `https://dashscope.aliyuncs.com/compatible-mode/v1`；代码默认 `qwen3.8-max` |

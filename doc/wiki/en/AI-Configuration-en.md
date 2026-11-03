@@ -18,7 +18,7 @@ AI settings, connection tests, model lists and prompt settings are admin-only. T
 | MiniMax | API key | Defaults to `https://api.minimax.cn/v1`; code default `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | Sign in to a MiniMax Code account on the settings page | Fixed endpoint `https://agent.minimax.cn/mavis/api/v1/llm`; code default `MiniMax-M3.1-Flash` |
 | Zhipu GLM | API key | Defaults to `https://open.bigmodel.cn/api/paas/v4`; code default `glm-5.3-flash`, with `reasoning_effort: low` sent automatically to keep thinking models fast |
-| Zhipu GLM Coding Plan | API key (monthly Coding Plan subscription) | Defaults to `https://open.bigmodel.cn/api/coding/paas/v4` (changing to `api/paas/v4` falls outside the plan and is billed per use); code default `glm-5.3`, with `reasoning_effort: low` sent automatically; the plan does not include TTS |
+| Zhipu GLM Coding Plan | API key (monthly Coding Plan subscription) | Defaults to `https://open.bigmodel.cn/api/coding/paas/v4` (changing to `api/paas/v4` falls outside the plan and is billed per use); code default `glm-5.3-flash`, with `reasoning_effort: low` sent automatically; the plan does not include TTS |
 | DeepSeek | API key | Defaults to `https://api.deepseek.com`; code default `deepseek-v4-flash` |
 | Kimi | API key | Defaults to `https://api.moonshot.cn/v1`; code default `kimi-k3.1-pro` |
 | Qwen | API key (Model Studio Token Plan recommended, starts with `sk-sp-`) | Defaults to the Token Plan URL `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`; pay-as-you-go keys use `https://dashscope.aliyuncs.com/compatible-mode/v1`; code default `qwen3.8-max` |

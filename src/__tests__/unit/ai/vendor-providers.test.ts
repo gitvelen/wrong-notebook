@@ -38,7 +38,7 @@ import { POST as testConnection } from '@/app/api/ai/test/route';
 const EXPECTED: Record<VendorProviderId, { baseUrl: string; model: string; reasoningEffort?: 'low' | 'medium' | 'high' }> = {
     minimax: { baseUrl: 'https://api.minimax.cn/v1', model: 'MiniMax-M3.1-Flash' },
     glm: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3-flash', reasoningEffort: 'low' },
-    'glm-coding': { baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', model: 'glm-5.3', reasoningEffort: 'low' },
+    'glm-coding': { baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', model: 'glm-5.3-flash', reasoningEffort: 'low' },
     deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
     kimi: { baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k3.1-pro' },
     qwen: { baseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max' },

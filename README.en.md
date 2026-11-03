@@ -313,7 +313,7 @@ The official Chinese model channels call each vendor's OpenAI-compatible API, so
 | MiniMax | [MiniMax platform](https://platform.minimax.io) | `https://api.minimax.cn/v1` (international `https://api.minimax.io/v1`) | `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | **Free account**, browser sign-in; see [below](#minimax-code-oauth) | Fixed endpoint | `MiniMax-M3.1-Flash` |
 | Zhipu GLM | [Z.ai platform](https://z.ai) | `https://open.bigmodel.cn/api/paas/v4` (international `https://api.z.ai/api/paas/v4`) | `glm-5.3-flash`, with `reasoning_effort: low` by default (deep thinking by default slows image analysis to minutes) |
-| Zhipu GLM Coding Plan | [Coding Plan](https://docs.bigmodel.cn/cn/guide/develop/claude/introduction) subscription | `https://open.bigmodel.cn/api/coding/paas/v4` (do not change to `api/paas/v4`, or requests fall outside the plan) | `glm-5.3`, with `reasoning_effort: low` by default |
+| Zhipu GLM Coding Plan | [Coding Plan](https://docs.bigmodel.cn/cn/guide/develop/claude/introduction) subscription | `https://open.bigmodel.cn/api/coding/paas/v4` (do not change to `api/paas/v4`, or requests fall outside the plan) | `glm-5.3-flash`, with `reasoning_effort: low` by default |
 | DeepSeek | [DeepSeek platform](https://platform.deepseek.com) | `https://api.deepseek.com` | `deepseek-v4-flash` |
 | Kimi | [Kimi platform](https://platform.kimi.com) | `https://api.moonshot.cn/v1` (international `https://api.moonshot.ai/v1`) | `kimi-k3.1-pro` |
 | Qwen | [Alibaba Cloud Model Studio](https://bailian.console.aliyun.com), Token Plan recommended | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` (pay-as-you-go `https://dashscope.aliyuncs.com/compatible-mode/v1`) | `qwen3.8-max` |
@@ -420,7 +420,7 @@ The most common variables are below; see the collapsed table and [`.env.example`
 | `MINIMAX_CODE_MODEL` | MiniMax Code model | `MiniMax-M3.1-Flash` | The account signs in from the web settings; no API key needed |
 | `MINIMAX_CODE_AUTO_CHECKIN` | MiniMax Code daily auto check-in | `true` | Set to `false` to turn it off |
 | `GLM_API_KEY` / `GLM_BASE_URL` / `GLM_MODEL` | Zhipu GLM | URL `https://open.bigmodel.cn/api/paas/v4`, model `glm-5.3-flash` | URL and model are optional |
-| `GLM_CODING_API_KEY` / `GLM_CODING_BASE_URL` / `GLM_CODING_MODEL` | Zhipu GLM Coding Plan | URL `https://open.bigmodel.cn/api/coding/paas/v4`, model `glm-5.3` | Monthly Coding Plan; do not change to `api/paas/v4` (requests fall outside the plan and are billed per use); the plan does not include TTS |
+| `GLM_CODING_API_KEY` / `GLM_CODING_BASE_URL` / `GLM_CODING_MODEL` | Zhipu GLM Coding Plan | URL `https://open.bigmodel.cn/api/coding/paas/v4`, model `glm-5.3-flash` | Monthly Coding Plan; do not change to `api/paas/v4` (requests fall outside the plan and are billed per use); the plan does not include TTS |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek | URL `https://api.deepseek.com`, model `deepseek-v4-flash` | URL and model are optional |
 | `KIMI_API_KEY` / `KIMI_BASE_URL` / `KIMI_MODEL` | Kimi | URL `https://api.moonshot.cn/v1`, model `kimi-k3.1-pro` | URL and model are optional |
 | `QWEN_API_KEY` / `QWEN_BASE_URL` / `QWEN_MODEL` | Qwen | URL `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` (Model Studio Token Plan), model `qwen3.8-max` | Pay-as-you-go keys use `https://dashscope.aliyuncs.com/compatible-mode/v1` |
