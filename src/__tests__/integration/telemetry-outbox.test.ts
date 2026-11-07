@@ -33,6 +33,8 @@ import { getTelemetryState } from '@/lib/telemetry/state';
 
 let database: PrismaClient;
 let directory: string;
+// 基准时间固定；instance_alive 与错误记录的写入时间通过 now 参数注入同一基准（Prisma 的
+// @default(now()) 由引擎按真实时间计算，无法在测试中冻结），保证测试不依赖运行日期。
 const NOW = new Date('2026-11-05T12:00:00Z');
 const HOUR = 3_600_000;
 
@@ -86,7 +88,7 @@ describe('批次内容', () => {
     it('首次发送：先写当天 instance_alive，批次通过收集服务契约且不含错误原文', async () => {
         configure({ recording: true });
         await addEvents(2, true);
-        await writeTelemetryError({ kind: 'client', scope: '[GlobalError]', name: 'TypeError', message: 'secret a@b.com', stack: 'TypeError: x\n    at f (/a.js:1:2)', path: '/error-items/abc' }, getTelemetryState());
+        await writeTelemetryError({ kind: 'client', scope: '[GlobalError]', name: 'TypeError', message: 'secret a@b.com', stack: 'TypeError: x\n    at f (/a.js:1:2)', path: '/error-items/abc' }, getTelemetryState(), NOW);
         const fetchMock = okFetch();
 
         const result = await flushOutbox({ now: NOW, fetchImpl: fetchMock });

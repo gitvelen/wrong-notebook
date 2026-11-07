@@ -27,7 +27,7 @@ export function writeMode(state: TelemetryState): { write: boolean; local: boole
  * 记录一条服务端事件，payload 不合法或遥测关闭时不写；绝不抛错，不影响业务流程。
  * 返回是否写入，便于调用方与测试判断
  */
-export async function recordEvent<N extends TelemetryEventName>(name: N, payload?: TelemetryEventPayloads[N], state?: TelemetryState): Promise<boolean> {
+export async function recordEvent<N extends TelemetryEventName>(name: N, payload?: TelemetryEventPayloads[N], state?: TelemetryState, now: Date = new Date()): Promise<boolean> {
     try {
         // 读取开关也放在 try 内：调用方常以 void 方式调用，任何异常都不能变成未处理的拒绝
         const mode = writeMode(state ?? getTelemetryState());
@@ -38,7 +38,8 @@ export async function recordEvent<N extends TelemetryEventName>(name: N, payload
             return false;
         }
         await prisma.telemetryEvent.create({
-            data: { name, payload: JSON.stringify(parsed), version: getAppVersion(), local: mode.local },
+            // 显式传入 createdAt：@default(now()) 由 Prisma 引擎按真实时间计算，注入 now 便于测试
+            data: { name, payload: JSON.stringify(parsed), version: getAppVersion(), local: mode.local, createdAt: now },
         });
         return true;
     } catch (error) {
@@ -91,12 +92,12 @@ export function resetErrorDedupe(): void {
  * 脱敏后写入一条错误记录。只开外发时不保存 message、stack、path、UA。
  * 返回指纹；未写入（关闭、去重、出错）时返回 null
  */
-export async function writeTelemetryError(input: TelemetryErrorInput, state: TelemetryState = getTelemetryState()): Promise<string | null> {
+export async function writeTelemetryError(input: TelemetryErrorInput, state: TelemetryState = getTelemetryState(), now: Date = new Date()): Promise<string | null> {
     const mode = writeMode(state);
     if (!mode.write || !state.errors) return null;
     const name = normalizeErrorName(input.name);
     const fingerprint = errorFingerprint({ ...input, name });
-    if (isDuplicate(fingerprint, Date.now())) return null;
+    if (isDuplicate(fingerprint, now.getTime())) return null;
     await prisma.telemetryError.create({
         data: {
             kind: input.kind,
@@ -105,6 +106,7 @@ export async function writeTelemetryError(input: TelemetryErrorInput, state: Tel
             fingerprint,
             version: getAppVersion(),
             local: mode.local,
+            createdAt: now,
             ...(mode.local ? {
                 message: sanitizeMessage(input.message),
                 stack: sanitizeStack(input.stack),

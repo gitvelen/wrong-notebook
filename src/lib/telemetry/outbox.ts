@@ -82,7 +82,7 @@ async function ensureInstanceAlive(now: Date): Promise<void> {
     if (lastFlushAt && utcDay(new Date(lastFlushAt)) === utcDay(now)) return;
     const existing = await prisma.telemetryEvent.count({ where: { name: "instance_alive", createdAt: { gte: dayStart } } });
     if (existing > 0) return;
-    await recordEvent("instance_alive", { platform: telemetryPlatform(), aiConfigured: isAiConfigured() });
+    await recordEvent("instance_alive", { platform: telemetryPlatform(), aiConfigured: isAiConfigured() }, undefined, now);
 }
 
 interface OutboxRecord {
