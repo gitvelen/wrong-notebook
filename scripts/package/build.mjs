@@ -93,8 +93,8 @@ function buildSeedDatabase() {
     const scriptsOut = path.join(WORK, 'dist-scripts');
     const env = { DATABASE_URL: `file:${seedDb.split(path.sep).join('/')}` };
     runNodeBin('typescript/bin/tsc', [
-        'scripts/rebuild-system-tags.ts', '--outDir', scriptsOut,
-        '--esModuleInterop', '--resolveJsonModule', '--skipLibCheck', '--module', 'commonjs', '--target', 'ES2020',
+        'scripts/rebuild-system-tags.ts', 'scripts/seed-chinese-primary.ts', '--outDir', scriptsOut,
+        '--esModuleInterop', '--resolveJsonModule', '--skipLibCheck', '--module', 'commonjs', '--target', 'ES2022',
     ]);
     runNodeBin('prisma/build/index.js', ['migrate', 'deploy'], { env });
     run(process.execPath, ['scripts/seed-admin.js'], { env });
@@ -182,6 +182,8 @@ function buildBundle() {
 
     if (!flags.skipBuild) {
         log('构建 Next.js 应用');
+        // 与 npm run build 的 prebuild 一致：复制 pdfjs 的 CMap 与标准字体到 public/pdfjs
+        run(process.execPath, [path.join(ROOT, 'scripts', 'copy-pdfjs-assets.mjs')]);
         runNodeBin('next/dist/bin/next', ['build']);
     }
     const standalone = path.join(ROOT, '.next', 'standalone');
@@ -192,11 +194,11 @@ function buildBundle() {
     log('组装 dist/bundle');
     rm(BUNDLE);
     copy(standalone, BUNDLE);
-    // standalone 可能带入本机的 .env、配置文件和数据库，全部移除，避免把密钥打进安装包
+    // standalone 仅保留运行时必需的顶层项，移除可能带入的本机配置、数据库及开发目录
+    const allowedTopLevel = new Set(['server.js', 'package.json', '.next', 'node_modules']);
     for (const entry of fs.readdirSync(BUNDLE)) {
-        if (entry.startsWith('.env') || /\.(db|db-journal|sqlite)$/.test(entry)) rm(path.join(BUNDLE, entry));
+        if (!allowedTopLevel.has(entry)) rm(path.join(BUNDLE, entry));
     }
-    for (const dir of ['config', 'data', 'prisma', 'certs', 'dist-scripts']) rm(path.join(BUNDLE, dir));
     // 外部包别名链接由 launcher.js 在运行时解析（见 installExternalAliasResolver）
     rm(path.join(BUNDLE, '.next', 'node_modules'));
 
@@ -210,6 +212,7 @@ function buildBundle() {
     fs.copyFileSync(path.join(ROOT, 'prisma', 'schema.prisma'), path.join(BUNDLE, 'prisma', 'schema.prisma'));
     copy(path.join(ROOT, 'prisma', 'migrations'), path.join(BUNDLE, 'prisma', 'migrations'));
     fs.copyFileSync(seedDb, path.join(BUNDLE, 'prisma', 'seed.db'));
+    copy(path.join(WORK, 'dist-scripts'), path.join(BUNDLE, 'dist-scripts'));
     // 运行时迁移需要 Prisma CLI 和本平台的 schema 引擎（与 Dockerfile 一致）
     for (const dir of ['.prisma', 'prisma', '@prisma']) {
         copy(path.join(ROOT, 'node_modules', dir), path.join(BUNDLE, 'node_modules', dir));
@@ -261,7 +264,7 @@ function buildNpm() {
         bugs: 'https://github.com/margrop/wrong-notebook/issues',
         license: 'MIT',
         bin: { 'wrong-notebook': 'bin/wrong-notebook.js' },
-        files: ['bin', 'launcher.js', 'server.js', '.next', 'public', 'prisma', 'README.md', 'LICENSE'],
+        files: ['bin', 'launcher.js', 'server.js', '.next', 'public', 'prisma', 'dist-scripts', 'README.md', 'LICENSE'],
         engines: { node: '>=22.15' },
         scripts: { postinstall: 'node bin/wrong-notebook.js prepare-client' },
         dependencies: readJson(path.join(WORK, 'runtime-dependencies.json')),
@@ -286,7 +289,7 @@ function buildDesktop() {
 
 /** electron-builder 的文件过滤规则较多，打包后确认服务端关键文件确实进入安装包 */
 function verifyDesktopOutput(releaseDir) {
-    const required = ['launcher.js', 'server.js', '.next/BUILD_ID', 'node_modules/.prisma/client/index.js', 'prisma/seed.db'];
+    const required = ['launcher.js', 'server.js', '.next/BUILD_ID', 'node_modules/.prisma/client/index.js', 'prisma/seed.db', 'dist-scripts/scripts/seed-chinese-primary.js'];
     const roots = [];
     const walk = (dir, depth) => {
         if (depth > 6 || !fs.existsSync(dir)) return;

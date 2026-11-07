@@ -1,8 +1,14 @@
 "use client";
 
+import { memo } from "react";
+import { X } from "lucide-react";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { AnswerSpaceControl } from "@/components/print-preview/answer-space-control";
+import { PrintQuestionText } from "@/components/print-preview/print-question-text";
 import { QuestionFigure } from "@/components/question-figure";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { resolveQuestionAnswerSpacePx } from "@/lib/exam/exam-answer-space";
+import { getPrintableItemTagNames } from "@/lib/print/print-preview";
 import type { PrintableErrorItem } from "@/types/api";
 import type { PrintDisplayOptions } from "./print-options";
 
@@ -10,28 +16,41 @@ interface PrintableQuestionProps {
     item: PrintableErrorItem;
     index: number;
     options: PrintDisplayOptions;
-    /** 显示答案或解析时题目之间多留空白，便于手写 */
+    /** 不显示答案和解析时题目之间预留作答空白 */
     reserveAnswerSpace: boolean;
+    /** 单题手动调整的留白高度（px） */
+    customAnswerSpacePx?: number | null;
+    /** 单题手动调整留白回调（null 为恢复默认）；需保持引用稳定，避免整页重渲染 */
+    onCustomAnswerSpaceChange?: (id: string, px: number | null) => void;
+    /** 卷别名称，由页面统一查好后传入 */
+    paperGroupName?: string | null;
+    /** 从打印稿中移除本题（取消勾选）；需保持引用稳定 */
+    onRemove?: (id: string) => void;
 }
 
-/** 题目的知识点：优先使用 tags 关联，旧数据回退到 knowledgePoints */
-function tagNames(item: PrintableErrorItem): string[] {
-    if (item.tags && item.tags.length > 0) return item.tags.map((tag) => tag.name);
-    try {
-        const parsed: unknown = JSON.parse(item.knowledgePoints || "[]");
-        return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
-    } catch {
-        return [];
-    }
-}
-
-/** 打印页中的一道题：题号、来源信息、原图或文字，以及可选的答案和解析 */
-export function PrintableQuestion({ item, index, options, reserveAnswerSpace }: PrintableQuestionProps) {
+/**
+ * 打印页中的一道题：题号、来源信息、原图或文字，以及可选的答案和解析。
+ * 使用 memo：勾选或调整其他题目时不重新渲染本题的公式与 Markdown。
+ */
+export const PrintableQuestion = memo(function PrintableQuestion({
+    item,
+    index,
+    options,
+    reserveAnswerSpace,
+    customAnswerSpacePx,
+    onCustomAnswerSpaceChange,
+    paperGroupName,
+    onRemove,
+}: PrintableQuestionProps) {
     const { t } = useLanguage();
-    const tags = tagNames(item);
+    const tags = getPrintableItemTagNames(item);
+    const answerSpacePx = reserveAnswerSpace
+        ? resolveQuestionAnswerSpacePx(options.answerSpace ?? "auto", item.questionText || "", customAnswerSpacePx)
+        : 0;
 
     return (
-        <div className={`mb-4 border-b last:border-b-0 print:break-inside-avoid ${reserveAnswerSpace ? "pb-20 print:pb-16" : "pb-6"}`}>
+        // content-visibility：屏幕外的题目跳过排版绘制，题目多时滚动和切换选项更流畅；打印时全部渲染
+        <div className={`mb-4 border-b last:border-b-0 print:break-inside-avoid [content-visibility:auto] [contain-intrinsic-size:auto_480px] print:[content-visibility:visible] ${reserveAnswerSpace ? "pb-4" : "pb-6"}`}>
             <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 leading-7">
                 <span className="text-lg font-bold">
                     {t.printPreview?.questionNumber?.replace('{num}', String(index + 1)) || `Question ${index + 1}`}
@@ -44,9 +63,9 @@ export function PrintableQuestion({ item, index, options, reserveAnswerSpace }: 
                 )}
                 {item.subject && <span className="text-sm text-muted-foreground">{item.subject.name}</span>}
                 {item.gradeSemester && <span className="text-sm text-muted-foreground">{item.gradeSemester}</span>}
-                {item.paperLevel && (
+                {paperGroupName && (
                     <span className="text-sm text-muted-foreground">
-                        {t.printPreview?.paperLevel || 'Paper Level'}: {item.paperLevel.toUpperCase()}
+                        {t.printPreview?.paperLevel || 'Paper Level'}: {paperGroupName}
                     </span>
                 )}
                 {options.showTags && tags.length > 0 && (
@@ -57,13 +76,23 @@ export function PrintableQuestion({ item, index, options, reserveAnswerSpace }: 
                         ))}
                     </>
                 )}
+                {onRemove && (
+                    <button
+                        type="button"
+                        className="print:hidden ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-destructive"
+                        onClick={() => onRemove(item.id)}
+                    >
+                        <X className="h-3.5 w-3.5" />
+                        {t.printPreview.removeFromPrint}
+                    </button>
+                )}
             </div>
 
             {options.showQuestionText && item.questionText ? (
                 <div className="mb-4">
-                    <MarkdownRenderer content={item.questionText} />
+                    <PrintQuestionText content={item.questionText} />
                     {/* 有 SVG 配图时打印配图，不再打印拍照原图 */}
-                    <QuestionFigure svg={item.figureSvg} />
+                    <QuestionFigure svg={item.figureSvg} scale={item.figureScale} align={item.figureAlign} />
                 </div>
             ) : (
                 item.originalImageUrl && (
@@ -71,6 +100,8 @@ export function PrintableQuestion({ item, index, options, reserveAnswerSpace }: 
                         <img
                             src={item.originalImageUrl}
                             alt={t.detail?.originalProblem || 'Question Image'}
+                            loading="lazy"
+                            decoding="async"
                             className="h-auto border rounded"
                             style={{ maxWidth: `${options.imageScale}%` }}
                         />
@@ -91,6 +122,20 @@ export function PrintableQuestion({ item, index, options, reserveAnswerSpace }: 
                     <MarkdownRenderer content={item.analysis} />
                 </div>
             )}
+
+            {reserveAnswerSpace && (
+                <>
+                    <div className="print-answer-space" style={{ minHeight: `${answerSpacePx}px` }} />
+                    {onCustomAnswerSpaceChange && (
+                        <AnswerSpaceControl
+                            effectivePx={answerSpacePx}
+                            isCustom={typeof customAnswerSpacePx === "number"}
+                            onChange={(px) => onCustomAnswerSpaceChange(item.id, px)}
+                            onReset={() => onCustomAnswerSpaceChange(item.id, null)}
+                        />
+                    )}
+                </>
+            )}
         </div>
     );
-}
+});

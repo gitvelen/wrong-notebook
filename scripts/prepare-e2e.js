@@ -13,7 +13,7 @@ const { hash } = require('bcryptjs');
 const E2E_ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'e2e-admin-pass';
 const DEFAULT_ADMIN_PASSWORD = '123456';
 const SETUP_ADMIN_EMAIL = 'setup-admin@localhost';
-// 与 src/lib/config.ts 一致
+// 与 src/lib/config/ 一致
 const CONFIG_FILE_PATH = path.join(process.env.CONFIG_DIR || path.join(process.cwd(), 'config'), 'app-config.json');
 
 // 直接读取并处理不存在的情况，避免先判断再读写之间文件被替换
@@ -39,15 +39,15 @@ async function main() {
         const adminHash = await hash(E2E_ADMIN_PASSWORD, 10);
         await prisma.user.upsert({
             where: { email: 'admin@localhost' },
-            update: { password: adminHash, role: 'admin', isActive: true },
-            create: { email: 'admin@localhost', name: 'Admin', password: adminHash, role: 'admin', isActive: true, educationStage: 'junior_high', enrollmentYear: 2025 },
+            update: { password: adminHash, role: 'admin', isActive: true, aiDataConsentAt: new Date() },
+            create: { email: 'admin@localhost', name: 'Admin', password: adminHash, role: 'admin', isActive: true, educationStage: 'junior_high', enrollmentYear: 2025, aiDataConsentAt: new Date() },
         });
 
         const defaultHash = await hash(DEFAULT_ADMIN_PASSWORD, 10);
         await prisma.user.upsert({
             where: { email: SETUP_ADMIN_EMAIL },
-            update: { password: defaultHash, role: 'admin', isActive: true },
-            create: { email: SETUP_ADMIN_EMAIL, name: 'Setup Admin', password: defaultHash, role: 'admin', isActive: true },
+            update: { password: defaultHash, role: 'admin', isActive: true, aiDataConsentAt: new Date() },
+            create: { email: SETUP_ADMIN_EMAIL, name: 'Setup Admin', password: defaultHash, role: 'admin', isActive: true, aiDataConsentAt: new Date() },
         });
 
         markSetupCompleted();

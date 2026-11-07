@@ -42,9 +42,14 @@ vi.mock('@/lib/config', () => ({
     updateAppConfig: mocks.mockUpdateAppConfig,
 }));
 
+// 协议门禁会额外读取一次配置，这里固定为已同意，避免消耗用例中 mockReturnValueOnce 的配置
+vi.mock('@/lib/eula/server', () => ({ isEulaPending: () => false }));
+
 const mockGetServerSession = vi.hoisted(() => vi.fn());
+const mockUserFindUnique = vi.hoisted(() => vi.fn());
 vi.mock('next-auth', () => ({ getServerSession: mockGetServerSession }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: mockUserFindUnique } } }));
 
 // Import after mocks
 import { GET, POST } from '@/app/api/settings/route';
@@ -52,11 +57,14 @@ import type { AppConfig } from '@/lib/config';
 
 const adminSession = { user: { id: 'admin-1', email: 'admin@localhost', role: 'admin' }, expires: '2099-01-01' };
 const userSession = { user: { id: 'user-1', email: 'user@localhost', role: 'user' }, expires: '2099-01-01' };
+const adminDbUser = { id: 'admin-1', email: 'admin@localhost', name: 'Admin', role: 'admin' };
+const userDbUser = { id: 'user-1', email: 'user@localhost', name: 'User', role: 'user' };
 
 describe('/api/settings', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockGetServerSession.mockResolvedValue(adminSession);
+        mockUserFindUnique.mockResolvedValue(adminDbUser);
     });
 
     describe('访问控制', () => {
@@ -72,6 +80,7 @@ describe('/api/settings', () => {
 
         it('普通用户 GET 只拿到非敏感字段', async () => {
             mockGetServerSession.mockResolvedValue(userSession);
+            mockUserFindUnique.mockResolvedValue(userDbUser);
 
             const response = await GET();
             const data = await response.json();
@@ -98,6 +107,7 @@ describe('/api/settings', () => {
 
         it('普通用户 POST 返回 403，且不写配置', async () => {
             mockGetServerSession.mockResolvedValue(userSession);
+            mockUserFindUnique.mockResolvedValue(userDbUser);
 
             const response = await POST(new Request('http://localhost/api/settings', {
                 method: 'POST',
@@ -153,6 +163,7 @@ describe('/api/settings', () => {
 
         it('普通用户不能修改全局时区', async () => {
             mockGetServerSession.mockResolvedValue(userSession);
+            mockUserFindUnique.mockResolvedValue(userDbUser);
             const response = await POST(new Request('http://localhost/api/settings', { method: 'POST', body: JSON.stringify({ timeZone: 'UTC' }) }));
             expect(response.status).toBe(403);
             expect(mocks.mockUpdateAppConfig).not.toHaveBeenCalled();
@@ -264,6 +275,27 @@ describe('/api/settings', () => {
             expect(updateCall.gemini?.apiKey).toBe('AIza-test-key');
         });
 
+        it('通用设置不能读写协议同意状态与遥测开关', async () => {
+            const current = mocks.mockGetAppConfig();
+            mocks.mockGetAppConfig.mockReturnValue({ ...current, eula: { acceptedVersion: 'v1' }, telemetry: { forwarding: true } } as ReturnType<typeof mocks.mockGetAppConfig>);
+            try {
+                const got = await (await GET()).json();
+                expect(got).not.toHaveProperty('eula');
+                expect(got).not.toHaveProperty('telemetry');
+                const response = await POST(new Request('http://localhost/api/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({ aiProvider: 'gemini', eula: { acceptedVersion: 'v9' }, telemetry: { forwarding: true } }),
+                    headers: { 'Content-Type': 'application/json' },
+                }));
+                expect(response.status).toBe(200);
+                const updateCall = mocks.mockUpdateAppConfig.mock.calls[0][0];
+                expect(updateCall).not.toHaveProperty('eula');
+                expect(updateCall).not.toHaveProperty('telemetry');
+            } finally {
+                mocks.mockGetAppConfig.mockReturnValue(current);
+            }
+        });
+
         it('国产大模型渠道同样保留掩码 API Key 的原有值', async () => {
             const { VENDOR_PROVIDER_IDS } = await import('@/lib/ai/vendor-presets');
             const current = mocks.mockGetAppConfig();
@@ -351,6 +383,23 @@ describe('/api/settings', () => {
 
             mocks.mockUpdateAppConfig.mockClear();
             for (const invalid of [-1, 2.5, '10']) {
+                expect((await post(invalid)).status).toBe(400);
+            }
+            expect(mocks.mockUpdateAppConfig).not.toHaveBeenCalled();
+        });
+
+        it('保存同一模型 AI 并发上限，拒绝 1～100 以外的值和非整数', async () => {
+            const post = (aiConcurrencyLimit: unknown) => POST(new Request('http://localhost/api/settings', {
+                method: 'POST',
+                body: JSON.stringify({ aiConcurrencyLimit }),
+                headers: { 'Content-Type': 'application/json' },
+            }));
+
+            expect((await post(8)).status).toBe(200);
+            expect(mocks.mockUpdateAppConfig).toHaveBeenCalledWith(expect.objectContaining({ aiConcurrencyLimit: 8 }));
+
+            mocks.mockUpdateAppConfig.mockClear();
+            for (const invalid of [0, 101, 2.5, '10']) {
                 expect((await post(invalid)).status).toBe(400);
             }
             expect(mocks.mockUpdateAppConfig).not.toHaveBeenCalled();

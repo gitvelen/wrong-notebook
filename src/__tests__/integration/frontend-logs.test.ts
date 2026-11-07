@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next-auth', () => ({ getServerSession: mocks.getServerSession }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/logger', () => ({ createLogger: vi.fn(() => mocks.logger) }));
+vi.mock('@/lib/prisma', () => ({
+    prisma: {
+        user: { findUnique: vi.fn(async () => ({ id: 'user-1', email: 'u@localhost' })) },
+    },
+}));
 
 import { NextRequest } from 'next/server';
 import { POST } from '@/app/api/logs/frontend/route';
@@ -52,5 +57,12 @@ describe('POST /api/logs/frontend', () => {
         expect((await response.json()).count).toBe(50);
         expect(mocks.logger.info).toHaveBeenCalledTimes(50);
         expect(mocks.logger.info.mock.calls[0][1]).toHaveLength(2000);
+    });
+
+    it('非法请求体返回 400', async () => {
+        const response = await POST(makeRequest(null));
+
+        expect(response.status).toBe(400);
+        expect(mocks.logger.info).not.toHaveBeenCalled();
     });
 });

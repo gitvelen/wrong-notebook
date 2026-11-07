@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SvgAnimationExplainer } from '@/components/svg-animation-explainer';
-import { LanguageProvider } from '@/contexts/LanguageContext';
+import { LanguageProvider, loadEnTranslations } from '@/contexts/LanguageContext';
 
 const mocks = vi.hoisted(() => ({
     post: vi.fn(),
@@ -14,7 +14,20 @@ const mocks = vi.hoisted(() => ({
     confirmDialog: vi.fn(),
 }));
 
-vi.mock('@/lib/api-client', () => ({ apiClient: { post: mocks.post, delete: mocks.delete } }));
+vi.mock('@/lib/api-client', () => ({
+    apiClient: { post: mocks.post, delete: mocks.delete },
+    ApiError: class ApiError extends Error {
+        status: number;
+        statusText: string;
+        data: unknown;
+        constructor(status: number, statusText: string, data: unknown) {
+            super('ApiError');
+            this.status = status;
+            this.statusText = statusText;
+            this.data = data;
+        }
+    },
+}));
 vi.mock('@/lib/cloud-speech', () => ({ getSpeechMode: () => Promise.resolve('browser'), regenerateSpeech: vi.fn() }));
 vi.mock('@/lib/feedback', () => ({ toast: { error: vi.fn(), success: vi.fn() }, confirmDialog: mocks.confirmDialog }));
 vi.mock('@/components/svg-animation-player', () => ({ SvgAnimationPlayer: ({ svg }: { svg: string }) => <div data-testid="player">{svg}</div> }));
@@ -44,6 +57,8 @@ async function render(props: { svgAnimation?: string | null; hasOtherLanguage?: 
             <SvgAnimationExplainer errorItemId="e1" svgAnimation={props.svgAnimation} hasOtherLanguage={props.hasOtherLanguage} onChange={props.onChange ?? vi.fn()} />
         </LanguageProvider>,
     ));
+    // 英文文案按需加载，等待加载完成后再交互
+    await act(async () => { await loadEnTranslations(); });
 }
 
 const clickButton = (text: string) => act(async () => {

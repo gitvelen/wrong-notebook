@@ -71,4 +71,43 @@ describe('代码渲染', () => {
         const html = renderToStaticMarkup(<MarkdownRenderer content={'```\nblock\n```'} />);
         expect(html).toMatch(/<pre class="bg-muted p-4[^"]*"><code[^>]*>block\n<\/code><\/pre>/);
     });
+
+    it('加粗与行内代码继承外层文字颜色，不在深色系统下的白底打印区变成浅色字', () => {
+        const html = renderToStaticMarkup(<MarkdownRenderer content={'**重点**与`代码`'} />);
+        expect(html).toContain('<strong class="font-bold">重点</strong>');
+        expect(html).not.toContain('text-foreground');
+    });
+
+    it('选择题选项自动另起一行，不紧接在题干后面', () => {
+        const inlineHtml = renderToStaticMarkup(
+            <MarkdownRenderer content={'计算 $2+3$ 的值（ ） A. 4  B. 5  C. 6  D. 7'} />,
+        );
+        expect(inlineHtml).toMatch(/的值（ ）<\/p>\s*<p[^>]*>A\. 4/);
+
+        const noSpaceHtml = renderToStaticMarkup(
+            <MarkdownRenderer content={'下列正确的是（ ）A．1 B．2 C．3 D．4'} />,
+        );
+        expect(noSpaceHtml).toMatch(/正确的是（ ）<\/p>\s*<p[^>]*>A．1/);
+
+        const newlineHtml = renderToStaticMarkup(
+            <MarkdownRenderer content={'下列哪个数是质数？（ ）\nA. 4\nB. 6\nC. 7\nD. 9'} />,
+        );
+        expect(newlineHtml).toMatch(/是质数？（ ）<\/p>\s*<p[^>]*>A\. 4<\/p>\s*<p[^>]*>B\. 6/);
+
+        // 非选择题中的几何点名 A、B、C 不被错误断行
+        const geometryHtml = renderToStaticMarkup(
+            <MarkdownRenderer content={'已知 A、B、C 三点共线，求证：AB+BC=AC。'} />,
+        );
+        expect(geometryHtml).toMatch(/<p[^>]*>已知 A、B、C 三点共线，求证：AB\+BC=AC。<\/p>/);
+    });
+});
+
+describe('作答横线', () => {
+    it('单独成行的下划线渲染为留出书写高度的作答横线，--- 仍是普通分隔线', () => {
+        const html = renderToStaticMarkup(<MarkdownRenderer content={'1. 我每天七点起床。\n____\n\n---'} />);
+        const lines = [...html.matchAll(/<hr class="([^"]*)"/g)].map((m) => m[1]);
+        expect(lines).toHaveLength(2);
+        expect(lines[0]).toContain('writing-line');
+        expect(lines[1]).not.toContain('writing-line');
+    });
 });

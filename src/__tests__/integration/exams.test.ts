@@ -1,6 +1,7 @@
 /**
  * /api/exams 错题试卷 API 集成测试
  */
+import { NextResponse } from 'next/server';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => {
@@ -46,13 +47,15 @@ vi.mock('@/lib/mastery', async (importOriginal) => ({
 vi.mock('next-auth', () => ({ getServerSession: vi.fn(() => Promise.resolve(mocks.session)) }));
 vi.mock('@/lib/auth', () => ({ authOptions: {} }));
 vi.mock('@/lib/config', () => ({ getAppTimeZone: vi.fn(() => 'Asia/Shanghai') }));
+vi.mock('@/lib/ai-quota', () => ({ consumeAiQuota: vi.fn(() => Promise.resolve(null)) }));
 
 import { POST as CREATE, GET as LIST } from '@/app/api/exams/route';
-import { GET as DETAIL, DELETE } from '@/app/api/exams/[id]/route';
+import { GET as DETAIL, PATCH as UPDATE_SCALE, DELETE } from '@/app/api/exams/[id]/route';
 import { POST as RESULTS } from '@/app/api/exams/[id]/results/route';
 import { POST as REGENERATE } from '@/app/api/exams/[id]/questions/[questionId]/regenerate/route';
-import { generateExamPaper } from '@/lib/exam';
+import { generateExamPaper } from '@/lib/exam/exam';
 import { getAppTimeZone } from '@/lib/config';
+import { resetBackgroundTasksForTest } from '@/lib/background-tasks';
 
 const json = (url: string, method: string, body: object) => new Request(url, {
     method,
@@ -64,6 +67,7 @@ const params = (id: string) => ({ params: Promise.resolve({ id }) });
 describe('/api/exams', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        resetBackgroundTasksForTest();
         mocks.user.findUnique.mockResolvedValue({ id: 'user-1' });
         // 后台生成在测试中立即结束
         mocks.examPaper.findUnique.mockResolvedValue(null);
@@ -77,7 +81,7 @@ describe('/api/exams', () => {
             vi.setSystemTime(new Date('2026-10-19T03:27:00Z'));
             vi.mocked(getAppTimeZone).mockReturnValueOnce(timeZone);
             mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
-            mocks.errorItem.findMany.mockResolvedValue([{ id: 'e1', shortId: 'AAAAAA', _count: { practiceRecords: 0 } }]);
+            mocks.errorItem.findMany.mockResolvedValue([{ id: 'e1', shortId: 'AAAAAA', questionText: '题1', _count: { practiceRecords: 0 } }]);
             mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 2, _count: { questions: 1 } });
             try {
                 expect((await CREATE(json('http://localhost/api/exams', 'POST', options))).status).toBe(201);
@@ -88,9 +92,9 @@ describe('/api/exams', () => {
         });
 
         const practicedItems = [
-            { id: 'e1', shortId: 'AAAAAA', _count: { practiceRecords: 5 } },
-            { id: 'e2', shortId: 'BBBBBB', _count: { practiceRecords: 0 } },
-            { id: 'e3', shortId: 'CCCCCC', _count: { practiceRecords: 1 } },
+            { id: 'e1', shortId: 'AAAAAA', questionText: '题1', _count: { practiceRecords: 5 } },
+            { id: 'e2', shortId: 'BBBBBB', questionText: '题2', _count: { practiceRecords: 0 } },
+            { id: 'e3', shortId: 'CCCCCC', questionText: '题3', _count: { practiceRecords: 1 } },
         ];
 
         it('完全随机抽题并记录来源短 ID', async () => {
@@ -119,9 +123,26 @@ describe('/api/exams', () => {
             const response = await CREATE(json('http://localhost/api/exams', 'POST', options));
 
             expect(response.status).toBe(201);
-            expect(mocks.errorItem.findMany.mock.calls[0][0].select._count).toEqual({ select: { practiceRecords: true } });
+            expect(mocks.errorItem.findMany.mock.calls[0][0].select._count).toEqual({ select: { practiceRecords: true, examQuestions: true } });
             const created = mocks.examPaper.create.mock.calls[0][0].data;
             expect(created.questions.create.map((question: { errorItemId: string }) => question.errorItemId)).toEqual(['e2', 'e3']);
+        });
+
+        it('优先练习较少时，同练习次数下优先抽取未出现在已有试卷中的题目', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany.mockResolvedValue([
+                { id: 'e1', shortId: 'AAAAAA', questionText: '题1', _count: { practiceRecords: 1, examQuestions: 2 } },
+                { id: 'e2', shortId: 'BBBBBB', questionText: '题2', _count: { practiceRecords: 0, examQuestions: 1 } },
+                { id: 'e3', shortId: 'CCCCCC', questionText: '题3', _count: { practiceRecords: 0, examQuestions: 0 } },
+                { id: 'e4', shortId: 'DDDDDD', questionText: '题4', _count: { practiceRecords: 1, examQuestions: 0 } },
+            ]);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 3, _count: { questions: 3 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', { ...options, count: 3 }));
+
+            expect(response.status).toBe(201);
+            const created = mocks.examPaper.create.mock.calls[0][0].data;
+            expect(created.questions.create.map((question: { errorItemId: string }) => question.errorItemId)).toEqual(['e3', 'e2', 'e4']);
         });
 
         it('没有符合条件的错题时返回 NO_SOURCE_ITEMS', async () => {
@@ -151,6 +172,137 @@ describe('/api/exams', () => {
             expect(tooMany.status).toBe(400);
             expect(badScope.status).toBe(400);
             expect(badRule.status).toBe(400);
+        });
+
+        it('原题直出模式：不调用 AI 与额度，题目创建即 ready，difficulty 可省略', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany
+                .mockResolvedValueOnce([{ id: 'e1', shortId: 'AAAAAA', questionText: '原题', _count: { practiceRecords: 0 } }])
+                .mockResolvedValueOnce([{
+                    id: 'e1', shortId: 'AAAAAA',
+                    questionText: '原题', answerText: '答', analysis: '析', figureSvg: '<svg/>',
+                    figureScale: 65, figureAlign: 'left', answerSpacePx: 240,
+                }]);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 1, _count: { questions: 1 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'all', count: 1, mode: 'original',
+            }));
+
+            expect(response.status).toBe(201);
+            const created = mocks.examPaper.create.mock.calls[0][0].data;
+            expect(created.mode).toBe('original');
+            expect(created.status).toBe('ready');
+            expect(created.difficulty).toBe('original');
+            expect(created.questions.create[0]).toMatchObject({
+                questionText: '原题', answerText: '答', analysis: '析', figureSvg: '<svg/>',
+                figureScale: 65, figureAlign: 'left', answerSpacePx: 240, status: 'ready',
+            });
+            expect(mocks.generateSimilarQuestion).not.toHaveBeenCalled();
+        });
+
+        it('原题直出：findMany 返回乱序时题目 order 仍按 sources 抽题顺序', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            // selectSourceItems 返回顺序：e3 先被抽中（练习次数最少）
+            mocks.errorItem.findMany
+                .mockResolvedValueOnce([
+                    { id: 'e3', shortId: 'CCCCCC', questionText: '题3', _count: { practiceRecords: 0 } },
+                    { id: 'e1', shortId: 'AAAAAA', questionText: '题1', _count: { practiceRecords: 5 } },
+                ])
+                // 第二次 findMany 返回乱序（数据库默认顺序可能与 sources 不同）
+                .mockResolvedValueOnce([
+                    { id: 'e1', shortId: 'AAAAAA', questionText: '题1', answerText: '答1', analysis: '析1', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null },
+                    { id: 'e3', shortId: 'CCCCCC', questionText: '题3', answerText: '答3', analysis: '析3', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null },
+                ]);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'all', count: 2, mode: 'original',
+            }));
+
+            expect(response.status).toBe(201);
+            const created = mocks.examPaper.create.mock.calls[0][0].data;
+            // order 应跟随 sources 顺序：e3 在前（练习次数少），e1 在后
+            expect(created.questions.create.map((q: { errorItemId: string; order: number }) => [q.errorItemId, q.order]))
+                .toEqual([['e3', 1], ['e1', 2]]);
+        });
+
+        it('原题直出模式排除无题干文字（含纯空白）的题目，全部被排除时返回 NO_SOURCE_ITEMS', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            // 只有无题干的题目
+            mocks.errorItem.findMany.mockResolvedValue([
+                { id: 'e1', shortId: 'AAAAAA', questionText: null, _count: { practiceRecords: 0 } },
+                { id: 'e2', shortId: 'BBBBBB', questionText: '   ', _count: { practiceRecords: 0 } },
+                { id: 'e3', shortId: 'CCCCCC', questionText: '', _count: { practiceRecords: 0 } },
+            ]);
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'all', count: 2, mode: 'original',
+            }));
+
+            expect(response.status).toBe(400);
+            expect((await response.json()).message).toBe('NO_SOURCE_ITEMS');
+        });
+
+        it('generate 模式缺少 difficulty 时返回 400', async () => {
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'all', count: 1,
+            }));
+
+            expect(response.status).toBe(400);
+        });
+
+        it('传入未注册的选题来源 source 时返回校验错误', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                ...options, source: 'unknown-source',
+            }));
+
+            expect(response.status).toBe(400);
+            const body = await response.json();
+            expect(body.code).toBe('VALIDATION_ERROR');
+            expect(body.details).toEqual([{ code: 'invalid_source', path: ['source'], message: 'Unknown exam source: unknown-source' }]);
+            expect(mocks.examPaper.create).not.toHaveBeenCalled();
+        });
+
+        it('注册测试 provider 后组卷使用它选出的题，注销后不再可用', async () => {
+            const { registerExamSourceProvider, unregisterExamSourceProvider } = await import('@/lib/exam/exam-sources');
+            const selected = [
+                { id: 'e9', shortId: 'ZZZZZZ', questionText: '题9', questionType: 'calculation', practiceCount: 0, inExam: false, difficultyStars: null },
+            ];
+            registerExamSourceProvider({
+                key: 'test-bank',
+                select: async (userId: string, selection: { count: number }) => {
+                    expect(userId).toBe('user-1');
+                    expect(selection.count).toBe(1);
+                    return selected;
+                },
+            });
+            try {
+                mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+                mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 1, _count: { questions: 1 } });
+
+                const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                    subjectIds: ['s1'], scope: 'unmastered', count: 1, difficulty: 'hard', source: 'test-bank',
+                }));
+
+                expect(response.status).toBe(201);
+                const created = mocks.examPaper.create.mock.calls[0][0].data;
+                expect(created.questions.create.map((question: { errorItemId: string; sourceShortId: string }) => [question.errorItemId, question.sourceShortId]))
+                    .toEqual([['e9', 'ZZZZZZ']]);
+                // 测试 provider 不查错题库
+                expect(mocks.errorItem.findMany).not.toHaveBeenCalled();
+            } finally {
+                unregisterExamSourceProvider('test-bank');
+            }
+
+            // 注销后再用该 source 应返回校验错误
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'unmastered', count: 1, difficulty: 'hard', source: 'test-bank',
+            }));
+            expect(response.status).toBe(400);
         });
     });
 
@@ -182,6 +334,207 @@ describe('/api/exams', () => {
 
         expect(response.status).toBe(200);
         expect(mocks.examPaper.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
+    });
+
+    describe('PATCH 保存试卷题目配图比例与显示位置', () => {
+        it('单题保存配图比例与位置时只更新指定试卷题目', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+
+            const response = await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', figureScale: 65, figureAlign: 'left' }), params('p1'));
+
+            expect(response.status).toBe(200);
+            expect(await response.json()).toEqual({ questionId: 'q1', figureScale: 65, figureAlign: 'left' });
+            expect(mocks.examQuestion.updateMany).toHaveBeenCalledWith({
+                where: { id: 'q1', paperId: 'p1' },
+                data: { figureScale: 65, figureAlign: 'left' },
+            });
+        });
+
+        it('统一调整配图比例或位置时更新该试卷全部题目', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 3 });
+
+            const scaleResponse = await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureScale: 120 }), params('p1'));
+            expect(scaleResponse.status).toBe(200);
+            expect(await scaleResponse.json()).toEqual({ figureScale: 120 });
+            expect(mocks.examQuestion.updateMany).toHaveBeenCalledWith({
+                where: { paperId: 'p1' },
+                data: { figureScale: 120 },
+            });
+
+            const alignResponse = await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureAlign: 'right' }), params('p1'));
+            expect(alignResponse.status).toBe(200);
+            expect(await alignResponse.json()).toEqual({ figureAlign: 'right' });
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({
+                where: { paperId: 'p1' },
+                data: { figureAlign: 'right' },
+            });
+        });
+
+        it('保存与清除单题留白，统一清除时更新整卷', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+
+            const saveResponse = await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', answerSpacePx: 240 }), params('p1'));
+            expect(saveResponse.status).toBe(200);
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({ where: { id: 'q1', paperId: 'p1' }, data: { answerSpacePx: 240 } });
+
+            const resetResponse = await UPDATE_SCALE(json('http://localhost', 'PATCH', { answerSpacePx: null }), params('p1'));
+            expect(resetResponse.status).toBe(200);
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({ where: { paperId: 'p1' }, data: { answerSpacePx: null } });
+
+            for (const answerSpacePx of [-1, 601, 50.5, '120']) {
+                expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', answerSpacePx }), params('p1'))).status).toBe(400);
+            }
+        });
+
+        it('校验比例范围、显示位置、试卷归属与题目归属', async () => {
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', {}), params('p1'))).status).toBe(400);
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureScale: 9 }), params('p1'))).status).toBe(400);
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureScale: 201 }), params('p1'))).status).toBe(400);
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureAlign: 'top' }), params('p1'))).status).toBe(400);
+
+            mocks.examPaper.findUnique.mockResolvedValueOnce({ userId: 'other' });
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { figureScale: 80 }), params('p1'))).status).toBe(404);
+
+            mocks.examPaper.findUnique.mockResolvedValueOnce({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValueOnce({ count: 0 });
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q-other', figureScale: 80 }), params('p1'))).status).toBe(404);
+        });
+    });
+
+    describe('PATCH 保存试卷题目分值', () => {
+        it('设置、批量统一与清空单题分值', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+
+            const single = await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', score: 2.5 }), params('p1'));
+            expect(single.status).toBe(200);
+            expect(await single.json()).toEqual({ questionId: 'q1', score: 2.5 });
+            expect(mocks.examQuestion.updateMany).toHaveBeenCalledWith({
+                where: { id: 'q1', paperId: 'p1' },
+                data: { score: 2.5 },
+            });
+
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 3 });
+            const uniform = await UPDATE_SCALE(json('http://localhost', 'PATCH', { score: 4 }), params('p1'));
+            expect(uniform.status).toBe(200);
+            expect(await uniform.json()).toEqual({ score: 4 });
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({
+                where: { paperId: 'p1' },
+                data: { score: 4 },
+            });
+
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+            const clear = await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', score: null }), params('p1'));
+            expect(clear.status).toBe(200);
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({
+                where: { id: 'q1', paperId: 'p1' },
+                data: { score: null },
+            });
+
+            // 统一清空整卷分值
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 3 });
+            const clearAll = await UPDATE_SCALE(json('http://localhost', 'PATCH', { score: null }), params('p1'));
+            expect(clearAll.status).toBe(200);
+            expect(mocks.examQuestion.updateMany).toHaveBeenLastCalledWith({
+                where: { paperId: 'p1' },
+                data: { score: null },
+            });
+        });
+
+        it('校验分值范围、小数位、必填与归属', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+
+            // 缺少 score
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', {}), params('p1'))).status).toBe(400);
+            // 越界与非法小数位
+            for (const score of [0, -1, 1000.1, 2.55, 0.15, '2.5']) {
+                expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q1', score }), params('p1'))).status).toBe(400);
+            }
+
+            // 他人的试卷
+            mocks.examPaper.findUnique.mockResolvedValueOnce({ userId: 'other' });
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { score: 2 }), params('p1'))).status).toBe(404);
+
+            // 题目不属于该试卷
+            mocks.examPaper.findUnique.mockResolvedValueOnce({ userId: 'user-1' });
+            mocks.examQuestion.updateMany.mockResolvedValueOnce({ count: 0 });
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { questionId: 'q-other', score: 2 }), params('p1'))).status).toBe(404);
+        });
+    });
+
+    describe('PATCH 按题型分大题开关', () => {
+        it('开启与关闭 groupByType，与配图、分值更新互不影响', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+            mocks.examPaper.update.mockResolvedValue({});
+
+            const on = await UPDATE_SCALE(json('http://localhost', 'PATCH', { groupByType: true }), params('p1'));
+            expect(on.status).toBe(200);
+            expect(await on.json()).toEqual({ groupByType: true });
+            expect(mocks.examPaper.update).toHaveBeenCalledWith({
+                where: { id: 'p1' },
+                data: { groupByType: true },
+            });
+
+            const off = await UPDATE_SCALE(json('http://localhost', 'PATCH', { groupByType: false }), params('p1'));
+            expect(off.status).toBe(200);
+            expect(mocks.examPaper.update).toHaveBeenLastCalledWith({
+                where: { id: 'p1' },
+                data: { groupByType: false },
+            });
+            // 不触碰题目表
+            expect(mocks.examQuestion.updateMany).not.toHaveBeenCalled();
+        });
+
+        it('校验类型与归属：非布尔、多余字段与他人试卷', async () => {
+            mocks.examPaper.findUnique.mockResolvedValue({ userId: 'user-1' });
+
+            for (const body of [{ groupByType: 'true' }, { groupByType: 1 }, {}, { groupByType: true, score: 2 }]) {
+                expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', body), params('p1'))).status).toBe(400);
+            }
+            expect(mocks.examPaper.update).not.toHaveBeenCalled();
+
+            mocks.examPaper.findUnique.mockResolvedValueOnce({ userId: 'other' });
+            expect((await UPDATE_SCALE(json('http://localhost', 'PATCH', { groupByType: true }), params('p1'))).status).toBe(404);
+            expect(mocks.examPaper.update).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('创建试卷时快照题型', () => {
+        const options = { subjectIds: ['s1'], scope: 'all' as const, count: 2 };
+
+        it('generate 模式创建题目时快照来源错题题型', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany.mockResolvedValue([
+                { id: 'e1', shortId: 'AAAAAA', questionType: 'single_choice', _count: { practiceRecords: 0, examQuestions: 0 } },
+                { id: 'e2', shortId: 'BBBBBB', questionType: null, _count: { practiceRecords: 1, examQuestions: 0 } },
+            ]);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', { ...options, difficulty: 'medium' }));
+            expect(response.status).toBe(201);
+            const created = mocks.examPaper.create.mock.calls[0][0].data;
+            expect(created.questions.create.map((question: { questionType: string | null }) => question.questionType)).toEqual(['single_choice', null]);
+        });
+
+        it('原题直出模式从原题快照题型', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany
+                .mockResolvedValueOnce([
+                    { id: 'e1', shortId: 'AAAAAA', questionText: '题1', _count: { practiceRecords: 0, examQuestions: 0 } },
+                ])
+                .mockResolvedValueOnce([
+                    { id: 'e1', shortId: 'AAAAAA', questionText: '题1', answerText: null, analysis: null, figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null, questionType: 'fill_blank' },
+                ]);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 1, _count: { questions: 1 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', { ...options, count: 1, mode: 'original' }));
+            expect(response.status).toBe(201);
+            const created = mocks.examPaper.create.mock.calls[0][0].data;
+            expect(created.questions.create[0].questionType).toBe('fill_blank');
+        });
     });
 
     describe('POST 录入结果', () => {
@@ -257,8 +610,7 @@ describe('/api/exams', () => {
 
     describe('POST 单题重新生成', () => {
         const questionParams = (id: string, questionId: string) => ({ params: Promise.resolve({ id, questionId }) });
-        const regenerate = (body: object) => REGENERATE(json('http://localhost', 'POST', body), questionParams('p1', 'q1'));
-        const question = (practiceCount: number) => ({
+        const regenerate = (body: object) => REGENERATE(json('http://localhost', 'POST', body), questionParams('p1', 'q1'));        const question = (practiceCount: number) => ({
             paperId: 'p1',
             status: 'ready',
             questionText: '旧题',
@@ -352,6 +704,67 @@ describe('/api/exams', () => {
             expect((await regenerate({ mode: 'all' })).status).toBe(400);
             expect(mocks.examQuestion.findUnique).not.toHaveBeenCalled();
         });
+
+        it('原题直出试卷 mode=question 返回 ORIGINAL_MODE 400，mode=answer 仍允许', async () => {
+            const originalQuestion = {
+                ...question(0),
+                paper: { userId: 'user-1', title: '试卷', difficulty: 'original', mode: 'original' },
+            };
+            mocks.examQuestion.findUnique.mockResolvedValueOnce(originalQuestion);
+
+            const questionResponse = await regenerate({ mode: 'question' });
+            expect(questionResponse.status).toBe(400);
+            expect((await questionResponse.json()).message).toBe('ORIGINAL_MODE');
+            expect(mocks.generateSimilarQuestion).not.toHaveBeenCalled();
+
+            // answer 模式不受原题限制
+            mocks.examQuestion.findUnique
+                .mockResolvedValueOnce(originalQuestion)
+                .mockResolvedValueOnce({ ...regenerated, questionText: '原题' });
+            mocks.reanswerQuestion.mockResolvedValue({ answerText: '新答', analysis: '新析' });
+
+            const answerResponse = await regenerate({ mode: 'answer', language: 'zh' });
+            expect(answerResponse.status).toBe(200);
+        });
+
+        it('同一题目并发重新生成时第二次返回 409，只扣一次额度、只调一次 AI', async () => {
+            const consumeAiQuota = (await import('@/lib/ai-quota')).consumeAiQuota as ReturnType<typeof vi.fn>;
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => { release = resolve; });
+            mocks.generateSimilarQuestion.mockImplementation(() => gate.then(() => ({ questionText: '新题', answerText: '新答', analysis: '新析' })));
+            mocks.examQuestion.findUnique.mockResolvedValueOnce(question(0)).mockResolvedValue(regenerated);
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+            mocks.examQuestion.findMany.mockResolvedValue([{ status: 'ready' }]);
+
+            const first = regenerate({ mode: 'question', language: 'zh' });
+            // 让第一次请求先完成 reserve + quota 检查
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const second = await regenerate({ mode: 'question', language: 'zh' });
+            expect(second.status).toBe(409);
+            const body = await second.json() as { code?: string };
+            expect(body.code).toBe('TASK_ALREADY_RUNNING');
+            expect(mocks.generateSimilarQuestion).toHaveBeenCalledTimes(1);
+            expect(consumeAiQuota).toHaveBeenCalledTimes(1);
+
+            release();
+            await first;
+        });
+
+        it('校验失败时 cancel 预占，不留下 running 任务；额度充足后可再次发起', async () => {
+            // 已录入结果：reserve 成功但校验失败，handle 应被 cancel
+            mocks.examQuestion.findUnique.mockResolvedValueOnce(question(1));
+            const failed = await regenerate({ mode: 'question' });
+            expect(failed.status).toBe(409);
+            expect((await failed.json()).message).toBe('HAS_RESULTS');
+
+            // 第二次额度充足，能成功发起
+            mocks.examQuestion.findUnique.mockResolvedValueOnce(question(0)).mockResolvedValueOnce(regenerated);
+            mocks.generateSimilarQuestion.mockResolvedValue({ questionText: '新题', answerText: '新答', analysis: '新析' });
+            mocks.examQuestion.updateMany.mockResolvedValue({ count: 1 });
+            mocks.examQuestion.findMany.mockResolvedValue([{ status: 'ready' }]);
+            expect((await regenerate({ mode: 'question', language: 'zh' })).status).toBe(200);
+        });
     });
 
     describe('generateExamPaper', () => {
@@ -372,6 +785,170 @@ describe('/api/exams', () => {
             });
             expect(mocks.examQuestion.update).toHaveBeenCalledWith({ where: { id: 'q2' }, data: { status: 'failed', error: 'SOURCE_DELETED' } });
             expect(mocks.examPaper.update).toHaveBeenLastCalledWith({ where: { id: 'p1' }, data: { status: 'partial' } });
+        });
+    });
+
+    describe('POST 创建 A/B 平行卷 parallel', () => {
+        const parallelOptions = { subjectIds: ['s1'], scope: 'unmastered', count: 2, difficulty: 'medium', parallel: true };
+
+        const parallelSources = [
+            { id: 'e1', shortId: 'AAAAAA', questionText: '题1', questionType: 'single_choice', difficultyStars: 2, _count: { practiceRecords: 0, examQuestions: 0 } },
+            { id: 'e2', shortId: 'BBBBBB', questionText: '题2', questionType: 'single_choice', difficultyStars: 3, _count: { practiceRecords: 0, examQuestions: 0 } },
+            { id: 'e3', shortId: 'CCCCCC', questionText: '题3', questionType: 'fill_blank', difficultyStars: 1, _count: { practiceRecords: 0, examQuestions: 0 } },
+            { id: 'e4', shortId: 'DDDDDD', questionText: '题4', questionType: 'fill_blank', difficultyStars: 4, _count: { practiceRecords: 0, examQuestions: 0 } },
+        ];
+
+        it('parallel 生成模式：两卷题目互不重复，响应包含 papers 数组', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources);
+            mocks.examPaper.create
+                .mockResolvedValueOnce({ id: 'pA', title: '数学 2026-11-04 13:00（A 卷）', requestedCount: 2, _count: { questions: 2 } })
+                .mockResolvedValueOnce({ id: 'pB', title: '数学 2026-11-04 13:00（B 卷）', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', parallelOptions));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.id).toBe('pA');
+            expect(body.papers).toHaveLength(2);
+            expect(body.papers[0].id).toBe('pA');
+            expect(body.papers[1].id).toBe('pB');
+            expect(body.warning).toBeUndefined();
+
+            // 验证 A 卷和 B 卷的 errorItemId 不重复
+            const callA = mocks.examPaper.create.mock.calls[0][0].data;
+            const callB = mocks.examPaper.create.mock.calls[1][0].data;
+            const idsA = callA.questions.create.map((q: { errorItemId: string }) => q.errorItemId);
+            const idsB = callB.questions.create.map((q: { errorItemId: string }) => q.errorItemId);
+            for (const id of idsB) {
+                expect(idsA).not.toContain(id);
+            }
+            // 验证标题包含 A 卷和 B 卷后缀
+            expect(callA.title).toContain('（A 卷）');
+            expect(callB.title).toContain('（B 卷）');
+        });
+
+        it('parallel 原题直出模式：两卷题目互不重复', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany
+                .mockResolvedValueOnce(parallelSources)
+                .mockResolvedValueOnce([
+                    { id: 'e1', shortId: 'AAAAAA', questionText: '题1', answerText: '答1', analysis: '析1', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null, questionType: 'single_choice' },
+                    { id: 'e2', shortId: 'BBBBBB', questionText: '题2', answerText: '答2', analysis: '析2', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null, questionType: 'single_choice' },
+                    { id: 'e3', shortId: 'CCCCCC', questionText: '题3', answerText: '答3', analysis: '析3', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null, questionType: 'fill_blank' },
+                    { id: 'e4', shortId: 'DDDDDD', questionText: '题4', answerText: '答4', analysis: '析4', figureSvg: null, figureScale: 100, figureAlign: 'center', answerSpacePx: null, questionType: 'fill_blank' },
+                ]);
+            mocks.examPaper.create
+                .mockResolvedValueOnce({ id: 'pA', title: '数学（A 卷）', requestedCount: 2, _count: { questions: 2 } })
+                .mockResolvedValueOnce({ id: 'pB', title: '数学（B 卷）', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                ...parallelOptions, mode: 'original',
+            }));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.papers).toHaveLength(2);
+            const callA = mocks.examPaper.create.mock.calls[0][0].data;
+            const callB = mocks.examPaper.create.mock.calls[1][0].data;
+            const idsA = callA.questions.create.map((q: { errorItemId: string }) => q.errorItemId);
+            const idsB = callB.questions.create.map((q: { errorItemId: string }) => q.errorItemId);
+            for (const id of idsB) {
+                expect(idsA).not.toContain(id);
+            }
+        });
+
+        it('parallel 源题不足 2×count 但 B 卷至少 1 题：创建两卷并返回 warning', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            // 只有 3 题，count=2，不足 2×count=4
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources.slice(0, 3));
+            mocks.examPaper.create
+                .mockResolvedValueOnce({ id: 'pA', title: '数学（A 卷）', requestedCount: 2, _count: { questions: 2 } })
+                .mockResolvedValueOnce({ id: 'pB', title: '数学（B 卷）', requestedCount: 2, _count: { questions: 1 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', parallelOptions));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.warning).toBe('PARALLEL_NOT_ENOUGH');
+            expect(body.papers).toHaveLength(2);
+            expect(body.papers[0].questionCount).toBe(2);
+            expect(body.papers[1].questionCount).toBe(1);
+        });
+
+        it('parallel 连 B 卷 1 题都没有：只创建 A 卷并返回 warning', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            // 只有 2 题，count=2，B 卷 0 题
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources.slice(0, 2));
+            mocks.examPaper.create.mockResolvedValueOnce({ id: 'pA', title: '数学（A 卷）', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', parallelOptions));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.warning).toBe('PARALLEL_NOT_ENOUGH');
+            expect(body.papers).toHaveLength(1);
+            expect(mocks.examPaper.create).toHaveBeenCalledTimes(1);
+        });
+
+        it('parallel 举一反三模式 B 卷 AI 额度不足：只创建 A 卷并返回明确错误，不带题目不足 warning', async () => {
+            const { consumeAiQuota } = await import('@/lib/ai-quota');
+            const consumeMock = vi.mocked(consumeAiQuota);
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources);
+            mocks.examPaper.create.mockResolvedValueOnce({ id: 'pA', title: '数学（A 卷）', requestedCount: 2, _count: { questions: 2 } });
+            // A 卷额度通过，B 卷额度不足
+            consumeMock
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(NextResponse.json({ message: 'AI_DAILY_LIMIT_EXCEEDED' }, { status: 429 }));
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', parallelOptions));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.error).toBe('PARALLEL_B_QUOTA_EXCEEDED');
+            // 题目充足（4 题 = 2×count），不应带题目不足 warning
+            expect(body.warning).toBeUndefined();
+            expect(body.papers).toHaveLength(1);
+            expect(body.papers[0].id).toBe('pA');
+            expect(mocks.examPaper.create).toHaveBeenCalledTimes(1);
+        });
+
+        it('parallel 举一反三模式题目不足且 B 卷额度不足：同时返回 warning 与 error', async () => {
+            const { consumeAiQuota } = await import('@/lib/ai-quota');
+            const consumeMock = vi.mocked(consumeAiQuota);
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            // 只有 3 题，count=2，不足 2×count=4
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources.slice(0, 3));
+            mocks.examPaper.create.mockResolvedValueOnce({ id: 'pA', title: '数学（A 卷）', requestedCount: 2, _count: { questions: 2 } });
+            consumeMock
+                .mockResolvedValueOnce(null)
+                .mockResolvedValueOnce(NextResponse.json({ message: 'AI_DAILY_LIMIT_EXCEEDED' }, { status: 429 }));
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', parallelOptions));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.warning).toBe('PARALLEL_NOT_ENOUGH');
+            expect(body.error).toBe('PARALLEL_B_QUOTA_EXCEEDED');
+            expect(body.papers).toHaveLength(1);
+        });
+
+        it('parallel=false 行为完全不变：只创建一份试卷，无 papers 数组', async () => {
+            mocks.subject.findMany.mockResolvedValue([{ id: 's1', name: '数学' }]);
+            mocks.errorItem.findMany.mockResolvedValue(parallelSources);
+            mocks.examPaper.create.mockResolvedValue({ id: 'p1', title: '数学', requestedCount: 2, _count: { questions: 2 } });
+
+            const response = await CREATE(json('http://localhost/api/exams', 'POST', {
+                subjectIds: ['s1'], scope: 'unmastered', count: 2, difficulty: 'medium', parallel: false,
+            }));
+
+            expect(response.status).toBe(201);
+            const body = await response.json();
+            expect(body.id).toBe('p1');
+            expect(body).not.toHaveProperty('papers');
+            expect(body).not.toHaveProperty('warning');
+            expect(mocks.examPaper.create).toHaveBeenCalledTimes(1);
         });
     });
 });

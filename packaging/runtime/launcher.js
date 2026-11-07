@@ -6,7 +6,8 @@
  *   1. 准备数据目录：数据库、配置文件、NextAuth 密钥都放在数据目录，安装目录可以只读
  *   2. 首次运行时复制打包时预置的数据库（含系统标签，不含管理员；服务启动后在日志中打印一次性初始化链接）
  *   3. 每次启动执行 prisma migrate deploy，只做增量迁移，保留已有数据
- *   4. 在当前进程内启动 Next.js standalone 服务
+ *   4. 增量补齐语文系统标签，保留已有标签 ID 和题目关联
+ *   5. 在当前进程内启动 Next.js standalone 服务
  *
  * 用法：node launcher.js [--port 3000] [--host 0.0.0.0] [--data-dir 目录]
  * 也可用环境变量 PORT、HOSTNAME、WRONG_NOTEBOOK_HOME 指定。
@@ -164,6 +165,8 @@ function prepare(options = {}) {
         PRISMA_HIDE_UPDATE_MESSAGE: 'true',
         APP_VERSION: process.env.APP_VERSION || version,
         WRONG_NOTEBOOK_HOME: dataDir,
+        // 匿名遥测的部署形态：桌面版、飞牛OS、安卓由各自外层启动器设置，直接运行 npm 包时为 npm
+        WN_PLATFORM: process.env.WN_PLATFORM || 'npm',
     };
 
     ensurePrismaClient(env);
@@ -181,6 +184,14 @@ function prepare(options = {}) {
     if (!runPrisma(['migrate', 'deploy', '--schema', path.join(APP_DIR, 'prisma', 'schema.prisma')], env)) {
         throw new Error('数据库迁移失败，已停止启动');
     }
+    const chineseTags = spawnSync(process.execPath, [path.join(APP_DIR, 'dist-scripts', 'scripts', 'seed-chinese-primary.js')], {
+        cwd: APP_DIR,
+        env,
+        stdio: 'inherit',
+        windowsHide: true,
+    });
+    if (chineseTags.error) throw chineseTags.error;
+    if (chineseTags.status !== 0) throw new Error('语文系统标签同步失败，已停止启动');
     return { dataDir, dbFile, env, version };
 }
 

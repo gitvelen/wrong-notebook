@@ -7,11 +7,24 @@ import type { Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/translations';
-import { usePracticeSession } from '@/lib/use-practice-session';
+import { usePracticeSession } from '@/lib/hooks/use-practice-session';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: mocks.get, post: mocks.post } }));
+vi.mock('@/lib/api-client', () => ({
+    apiClient: { get: mocks.get, post: mocks.post },
+    ApiError: class ApiError extends Error {
+        status: number;
+        statusText: string;
+        data: unknown;
+        constructor(status: number, statusText: string, data: unknown) {
+            super('ApiError');
+            this.status = status;
+            this.statusText = statusText;
+            this.data = data;
+        }
+    },
+}));
 vi.mock('@/lib/frontend-logger', () => ({ frontendLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 type Session = ReturnType<typeof usePracticeSession>;
@@ -38,7 +51,9 @@ async function render(id: string | null = 'item-1') {
 /** 按地址返回设置和上次练习 */
 function mockGet(practice: unknown = null) {
     mocks.get.mockImplementation(async (url: string) => (
-        url === '/api/settings' ? { timeouts: { analyze: 60000 } } : { practice }
+        url === '/api/settings' ? { timeouts: { analyze: 60000 } }
+            : url === '/api/tasks' ? { tasks: [] }
+            : { practice }
     ));
 }
 
@@ -114,6 +129,21 @@ describe('usePracticeSession', () => {
         expect(session.isCorrect).toBe(true);
         expect(session.suggestedResult).toBe('correct');
         expect(session.showAnswer).toBe(true);
+    });
+
+    it.each(['证明两底角相等', '说明理由并写出过程', 'Prove the two angles are equal.', 'Show that the angles are equal.'])('需要论证的题目不会因结论相同而跳过 AI：%s', async questionText => {
+        mocks.post.mockResolvedValueOnce({ ...generated, questionText, answerText: '两角相等' })
+            .mockResolvedValueOnce({ correct: false, reason: '缺少论证过程' });
+        await render();
+        await act(async () => session.generateQuestion());
+        await act(async () => session.setUserAnswer('两角相等'));
+        await act(async () => session.submitAnswer());
+        expect(mocks.post).toHaveBeenLastCalledWith('/api/practice/grade',
+            { errorItemId: 'item-1', userAnswer: '两角相等', language: expect.any(String) },
+            { timeout: 60000, recoverable: true });
+        expect(session.isCorrect).toBe(false);
+        expect(session.gradeReason).toBe('缺少论证过程');
+        expect(session.suggestedResult).toBe('wrong');
     });
 
     it('答案不一致时交给 AI 判题并显示判定依据', async () => {

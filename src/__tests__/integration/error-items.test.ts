@@ -28,6 +28,11 @@ const mocks = vi.hoisted(() => ({
         findMany: vi.fn(),
         upsert: vi.fn(),
     },
+    mockPrismaPaperGroup: {
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        create: vi.fn(),
+    },
     mockSession: {
         user: {
             email: 'user@example.com',
@@ -44,11 +49,13 @@ vi.mock('@/lib/prisma', () => ({
         errorItem: mocks.mockPrismaErrorItem,
         knowledgeTag: mocks.mockPrismaKnowledgeTag,
         subject: mocks.mockPrismaSubject,
+        paperGroup: mocks.mockPrismaPaperGroup,
         $transaction: vi.fn(async (callback: (client: unknown) => Promise<unknown>) => callback({
             user: mocks.mockPrismaUser,
             errorItem: mocks.mockPrismaErrorItem,
             knowledgeTag: mocks.mockPrismaKnowledgeTag,
             subject: mocks.mockPrismaSubject,
+            paperGroup: mocks.mockPrismaPaperGroup,
         })),
     },
 }));
@@ -75,6 +82,7 @@ import { PATCH as PATCH_NOTES } from '@/app/api/error-items/[id]/notes/route';
 import { DELETE as DELETE_ITEM } from '@/app/api/error-items/[id]/delete/route';
 import { getServerSession } from 'next-auth';
 import { calculateGrade } from '@/lib/grade-calculator';
+import { prisma } from '@/lib/prisma';
 
 describe('/api/error-items', () => {
     const mockUser = {
@@ -92,6 +100,19 @@ describe('/api/error-items', () => {
 
         // Default: subject not found (handle null case)
         mocks.mockPrismaSubject.findUnique.mockResolvedValue(null);
+
+        // Default: paperGroup returns a mock group (used when resolving paperLevel)
+        mocks.mockPrismaPaperGroup.findFirst.mockImplementation(async (args: { where?: { key?: string; id?: string } }) => {
+            if (args?.where?.key === 'a') return { id: 'group-a', name: 'A卷', key: 'a', isActive: true };
+            if (args?.where?.key === 'b') return { id: 'group-b', name: 'B卷', key: 'b', isActive: true };
+            if (args?.where?.id) return { id: args.where.id, name: 'Custom', key: null, isActive: true };
+            return null;
+        });
+        mocks.mockPrismaPaperGroup.findMany.mockResolvedValue([]);
+        mocks.mockPrismaPaperGroup.create.mockImplementation(async (args: { data: Record<string, unknown> }) => ({
+            id: `group-${Date.now()}`,
+            ...args.data,
+        }));
 
         // Default: knowledgeTag returns a mock tag (used when finding existing tags)
         mocks.mockPrismaKnowledgeTag.findFirst.mockImplementation(async (args: { where?: { name?: string } }) => {
@@ -128,6 +149,23 @@ describe('/api/error-items', () => {
             body: JSON.stringify(body),
             headers: { 'Content-Type': 'application/json' },
         }));
+
+        it('字段缺失的数据库返回迁移建议的错误码，不向前端泄漏 SQL 和路径', async () => {
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(null);
+            mocks.mockPrismaErrorItem.create.mockRejectedValueOnce(Object.assign(new Error('SELECT private_column FROM /private/database.db'), { code: 'P2022' }));
+            const response = await post(baseData);
+            expect(response.status).toBe(500);
+            expect(await response.json()).toEqual({
+                message: 'QUESTION_SAVE_SCHEMA_MISMATCH', code: 'DATABASE_ERROR', details: { databaseCode: 'P2022' },
+            });
+        });
+
+        it('非法 JSON 返回明确的请求校验失败', async () => {
+            const response = await POST(new Request('http://localhost/api/error-items', { method: 'POST', body: '{' }));
+            expect(response.status).toBe(400);
+            expect(await response.json()).toEqual({ message: 'QUESTION_SAVE_INVALID_JSON', code: 'VALIDATION_ERROR' });
+            expect(mocks.mockPrismaErrorItem.create).not.toHaveBeenCalled();
+        });
 
         it('创建时应生成 6 位 base58 短 ID', async () => {
             mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(null);
@@ -200,7 +238,42 @@ describe('/api/error-items', () => {
     });
 
     describe('POST /api/error-items (创建错题)', () => {
-        it.each([[1, 'a'], [2, 'a'], [3, 'a'], [4, 'b'], [5, 'b']] as const)('%i 星的新题保存默认 %s 卷', async (difficultyStars, paperLevel) => {
+        it.each([undefined, 10, 65, 100, 200])('创建错题保留配图比例 %s，缺省为 100%%', async (figureScale) => {
+            mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'new-item', userId: 'user-123' });
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST', body: JSON.stringify({ questionText: '新题', figureScale }),
+            }));
+            expect(response.status).toBe(201);
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.figureScale).toBe(figureScale ?? 100);
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.figureAlign).toBe('center');
+        });
+
+        it.each(['left', 'center', 'right'] as const)('创建错题保留配图位置 %s', async (figureAlign) => {
+            mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'new-item', userId: 'user-123' });
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST', body: JSON.stringify({ questionText: '新题', figureAlign }),
+            }));
+            expect(response.status).toBe(201);
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.figureAlign).toBe(figureAlign);
+        });
+
+        it.each([null, 0, 9, 201, 50.5, '80', true])('创建时拒绝非法配图比例 %s', async (figureScale) => {
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST', body: JSON.stringify({ questionText: '新题', figureScale }),
+            }));
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.create).not.toHaveBeenCalled();
+        });
+
+        it.each([null, '', 'top', 100])('创建时拒绝非法配图位置 %s', async (figureAlign) => {
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST', body: JSON.stringify({ questionText: '新题', figureAlign }),
+            }));
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.create).not.toHaveBeenCalled();
+        });
+
+        it.each([[1, 'group-a'], [2, 'group-a'], [3, 'group-a'], [4, 'group-b'], [5, 'group-b']] as const)('%i 星的新题保存默认 %s 分组', async (difficultyStars, paperLevel) => {
             mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'new-item', userId: 'user-123' });
             const response = await POST(new Request('http://localhost/api/error-items', {
                 method: 'POST', body: JSON.stringify({ questionText: '新题', difficultyStars }),
@@ -209,10 +282,10 @@ describe('/api/error-items', () => {
             expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.paperLevel).toBe(paperLevel);
         });
 
-        it.each(['a', 'b', 'other'])('创建时优先保留手工指定的 %s 卷', async (paperLevel) => {
+        it.each(['group-a', 'group-b', 'group-other'])('创建时优先保留手工指定的 %s 分组', async (paperLevel) => {
             mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'new-item', userId: 'user-123' });
             const response = await POST(new Request('http://localhost/api/error-items', {
-                method: 'POST', body: JSON.stringify({ questionText: '新题', difficultyStars: paperLevel === 'b' ? 2 : 5, paperLevel }),
+                method: 'POST', body: JSON.stringify({ questionText: '新题', difficultyStars: paperLevel === 'group-b' ? 2 : 5, paperLevel }),
             }));
             expect(response.status).toBe(201);
             expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.paperLevel).toBe(paperLevel);
@@ -295,6 +368,40 @@ describe('/api/error-items', () => {
             expect(mocks.mockPrismaErrorItem.create.mock.calls[1][0].data).toMatchObject({ hasFigure: false, figureSvg: null });
         });
 
+        it.each(['single_choice', 'solution', 'calculation', 'reading'])('创建时保留标准题型 key %s', async (questionType) => {
+            mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'error-item-1', userId: 'user-123' });
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST',
+                body: JSON.stringify({ questionText: '新题', questionType }),
+            }));
+            expect(response.status).toBe(201);
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.questionType).toBe(questionType);
+        });
+
+        it('创建时把中文题型别名规范化为标准 key', async () => {
+            mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'error-item-1', userId: 'user-123' });
+            const response = await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST',
+                body: JSON.stringify({ questionText: '新题', questionType: '填空题' }),
+            }));
+            expect(response.status).toBe(201);
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.questionType).toBe('fill_blank');
+        });
+
+        it('创建时未提供题型或无法识别时存 null', async () => {
+            mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'error-item-1', userId: 'user-123' });
+            await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST',
+                body: JSON.stringify({ questionText: '新题' }),
+            }));
+            await POST(new Request('http://localhost/api/error-items', {
+                method: 'POST',
+                body: JSON.stringify({ questionText: '新题', questionType: '未知题型' }),
+            }));
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.questionType).toBeNull();
+            expect(mocks.mockPrismaErrorItem.create.mock.calls[1][0].data.questionType).toBeNull();
+        });
+
         it('未提供难度星级时保存为空', async () => {
             mocks.mockPrismaErrorItem.create.mockResolvedValue({ id: 'error-item-1', userId: 'user-123' });
 
@@ -305,6 +412,8 @@ describe('/api/error-items', () => {
 
             expect(mocks.mockPrismaErrorItem.create.mock.calls[0][0].data.difficultyStars).toBeNull();
         });
+
+
 
         it('应该成功创建错题并关联到科目', async () => {
             const errorItemData = {
@@ -345,7 +454,7 @@ describe('/api/error-items', () => {
                 knowledgePoints: ['方程'],
                 originalImageUrl: 'data:image/png;base64,test...',
                 gradeSemester: '初一上期',
-                paperLevel: 'A',
+                paperLevel: 'group-a',
             };
 
             const createdItem = {
@@ -367,7 +476,7 @@ describe('/api/error-items', () => {
 
             expect(response.status).toBe(201);
             expect(data.gradeSemester).toBe('初一上期');
-            expect(data.paperLevel).toBe('A');
+            expect(data.paperLevel).toBe('group-a');
         });
 
         it('应该拒绝未登录用户创建错题', async () => {
@@ -504,18 +613,67 @@ describe('/api/error-items', () => {
     });
 
     describe('PUT /api/error-items/[id] (更新错题)', () => {
-        it('未设置卷别的题目补评为 4 星时默认归 B 卷', async () => {
+        it.each([10, 65, 100, 200])('可保存配图比例 %s%%', async (figureScale) => {
+            const item = { id: 'e1', userId: 'user-123', figureScale: 100 };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(item);
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({ ...item, figureScale });
+            const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                method: 'PUT', body: JSON.stringify({ figureScale }),
+            }), { params: Promise.resolve({ id: 'e1' }) });
+            expect(response.status).toBe(200);
+            expect((await response.json()).figureScale).toBe(figureScale);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data).toEqual({ figureScale });
+        });
+
+        it.each([null, 0, 9, 201, 50.5, '80', true])('更新时拒绝非法配图比例 %s', async (figureScale) => {
+            const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                method: 'PUT', body: JSON.stringify({ figureScale }),
+            }), { params: Promise.resolve({ id: 'e1' }) });
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.update).not.toHaveBeenCalled();
+        });
+
+        it.each(['left', 'center', 'right'] as const)('可保存配图显示位置 %s', async (figureAlign) => {
+            const item = { id: 'e1', userId: 'user-123', figureScale: 100, figureAlign: 'center' };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(item);
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({ ...item, figureAlign });
+            const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                method: 'PUT', body: JSON.stringify({ figureAlign }),
+            }), { params: Promise.resolve({ id: 'e1' }) });
+            expect(response.status).toBe(200);
+            expect((await response.json()).figureAlign).toBe(figureAlign);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data).toEqual({ figureAlign });
+        });
+
+        it.each([null, '', 'bottom', 100, false])('更新时拒绝非法配图显示位置 %s', async (figureAlign) => {
+            const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                method: 'PUT', body: JSON.stringify({ figureAlign }),
+            }), { params: Promise.resolve({ id: 'e1' }) });
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaErrorItem.update).not.toHaveBeenCalled();
+        });
+
+        it('拒绝修改其他用户题目的配图比例', async () => {
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({ id: 'e1', userId: 'other-user' });
+            const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                method: 'PUT', body: JSON.stringify({ figureScale: 50 }),
+            }), { params: Promise.resolve({ id: 'e1' }) });
+            expect(response.status).toBe(403);
+            expect(mocks.mockPrismaErrorItem.update).not.toHaveBeenCalled();
+        });
+
+        it('未设置卷别的题目补评为 4 星时默认归 B 卷分组', async () => {
             mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({ id: 'e1', userId: 'user-123', paperLevel: null });
             mocks.mockPrismaErrorItem.update.mockResolvedValue({ id: 'e1' });
             const response = await PUT(new Request('http://localhost/api/error-items/e1', { method: 'PUT', body: JSON.stringify({ difficultyStars: 4 }) }), { params: Promise.resolve({ id: 'e1' }) });
             expect(response.status).toBe(200);
-            expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data).toMatchObject({ difficultyStars: 4, paperLevel: 'b' });
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data).toMatchObject({ difficultyStars: 4, paperLevel: 'group-b' });
         });
 
-        it.each(['a', 'b', 'other'])('补评星级时保留已有 %s 卷', async (paperLevel) => {
+        it.each(['group-a', 'group-b', 'group-other'])('补评星级时保留已有 %s 分组', async (paperLevel) => {
             mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({ id: 'e1', userId: 'user-123', paperLevel });
             mocks.mockPrismaErrorItem.update.mockResolvedValue({ id: 'e1' });
-            await PUT(new Request('http://localhost/api/error-items/e1', { method: 'PUT', body: JSON.stringify({ difficultyStars: paperLevel === 'b' ? 2 : 5 }) }), { params: Promise.resolve({ id: 'e1' }) });
+            await PUT(new Request('http://localhost/api/error-items/e1', { method: 'PUT', body: JSON.stringify({ difficultyStars: paperLevel === 'group-b' ? 2 : 5 }) }), { params: Promise.resolve({ id: 'e1' }) });
             expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data).not.toHaveProperty('paperLevel');
         });
         it('只保存错因分析时沿用原作答状态', async () => {
@@ -581,17 +739,17 @@ describe('/api/error-items', () => {
             const existingItem = {
                 id: 'error-item-1',
                 userId: 'user-123',
-                paperLevel: 'A',
+                paperLevel: 'group-a',
             };
             mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
             mocks.mockPrismaErrorItem.update.mockResolvedValue({
                 ...existingItem,
-                paperLevel: 'B',
+                paperLevel: 'group-b',
             });
 
             const request = new Request('http://localhost/api/error-items/error-item-1', {
                 method: 'PUT',
-                body: JSON.stringify({ paperLevel: 'B' }),
+                body: JSON.stringify({ paperLevel: 'group-b' }),
                 headers: { 'Content-Type': 'application/json' },
             });
 
@@ -599,7 +757,7 @@ describe('/api/error-items', () => {
             const data = await response.json();
 
             expect(response.status).toBe(200);
-            expect(data.paperLevel).toBe('B');
+            expect(data.paperLevel).toBe('group-b');
         });
 
         it('可以手动修改和清除难度星级，非法值返回 400', async () => {
@@ -618,6 +776,62 @@ describe('/api/error-items', () => {
                 expect((await put(value)).status).toBe(400);
             }
             expect(mocks.mockPrismaErrorItem.update).toHaveBeenCalledTimes(2);
+        });
+
+        it('可以修改和清空题型，无法识别的题型返回 400', async () => {
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue({ id: 'error-item-1', userId: 'user-123', questionType: null });
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({ id: 'error-item-1', userId: 'user-123' });
+            const put = (questionType: unknown) => PUT(new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({ questionType }),
+            }), { params: Promise.resolve({ id: 'error-item-1' }) });
+
+            expect((await put('single_choice')).status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[0][0].data.questionType).toBe('single_choice');
+            // 中文别名也可识别
+            expect((await put('填空题')).status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[1][0].data.questionType).toBe('fill_blank');
+            expect((await put(null)).status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[2][0].data.questionType).toBeNull();
+            // 空串与 null 一样表示清除
+            expect((await put('')).status).toBe(200);
+            expect(mocks.mockPrismaErrorItem.update.mock.calls[3][0].data.questionType).toBeNull();
+            for (const value of ['unknown_type', 123, {}]) {
+                expect((await put(value)).status).toBe(400);
+            }
+            expect(mocks.mockPrismaErrorItem.update).toHaveBeenCalledTimes(4);
+        });
+
+        it('字段类型非法时返回 400', async () => {
+            for (const body of [
+                { questionText: 123 },
+                { answerText: true },
+                { gradeSemester: {} },
+                { paperLevel: 42 },
+                { subjectId: ['a'] },
+                { geogebraCommands: 123 },
+                { wrongAnswerText: false },
+                { mistakeAnalysis: {} },
+                { mistakeStatus: 1 },
+            ]) {
+                const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                    method: 'PUT', body: JSON.stringify(body),
+                }), { params: Promise.resolve({ id: 'e1' }) });
+                expect(response.status).toBe(400);
+                expect(mocks.mockPrismaErrorItem.update).not.toHaveBeenCalled();
+            }
+        });
+
+        it('前端提交的可空字段为 null 时不被参数校验拒绝', async () => {
+            for (const body of [
+                { wrongAnswerText: null, mistakeAnalysis: null, mistakeStatus: null },
+                { gradeSemester: null, geogebraCommands: null },
+            ]) {
+                const response = await PUT(new Request('http://localhost/api/error-items/e1', {
+                    method: 'PUT', body: JSON.stringify(body),
+                }), { params: Promise.resolve({ id: 'e1' }) });
+                expect(response.status).not.toBe(400);
+            }
         });
 
         it('应该拒绝更新其他用户的错题', async () => {
@@ -654,6 +868,66 @@ describe('/api/error-items', () => {
 
             expect(response.status).toBe(404);
             expect(data.message).toBe('Item not found');
+        });
+
+        it('更新错题时标签创建后、错题更新失败，事务回滚并返回错误', async () => {
+            const existingItem = {
+                id: 'error-item-1',
+                userId: 'user-123',
+                knowledgePoints: '["旧知识点"]',
+                subject: { id: 'sub-1', name: '数学', tagSet: 'default', stage: 'junior_high', subjectKey: 'math' },
+            };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaKnowledgeTag.findFirst.mockResolvedValue(null);
+            mocks.mockPrismaKnowledgeTag.create.mockResolvedValue({ id: 'tag-new-1', name: '新知识点' });
+            mocks.mockPrismaErrorItem.update.mockRejectedValue(new Error('Database error'));
+
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({ knowledgePoints: '["新知识点"]' }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            const data = await response.json();
+
+            expect(response.status).toBe(500);
+            expect(data.message).toBe('Failed to update error item');
+            // 验证使用了 $transaction
+            expect(prisma.$transaction).toHaveBeenCalled();
+        });
+
+        it('更新错题时旧错题本没有 subjectKey 则按名称推断学科', async () => {
+            // 错题本名称是「数学」，subjectKey 为 null（旧错题本），应推断为 math
+            const existingItem = {
+                id: 'error-item-1',
+                userId: 'user-123',
+                knowledgePoints: '["旧知识点"]',
+                subject: { id: 'sub-1', name: '数学', tagSet: 'default', stage: 'junior_high', subjectKey: null },
+            };
+            mocks.mockPrismaErrorItem.findUnique.mockResolvedValue(existingItem);
+            mocks.mockPrismaKnowledgeTag.findFirst.mockResolvedValue(null);
+            mocks.mockPrismaKnowledgeTag.create.mockResolvedValue({ id: 'tag-new-1', name: '新知识点' });
+            mocks.mockPrismaErrorItem.update.mockResolvedValue({
+                ...existingItem,
+                knowledgePoints: '["新知识点"]',
+            });
+
+            const request = new Request('http://localhost/api/error-items/error-item-1', {
+                method: 'PUT',
+                body: JSON.stringify({ knowledgePoints: '["新知识点"]' }),
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const response = await PUT(request, { params: Promise.resolve({ id: 'error-item-1' }) });
+            expect(response.status).toBe(200);
+
+            // 验证 subjectKey 为空时，新建标签使用按名称推断的学科（math）
+            expect(mocks.mockPrismaKnowledgeTag.create).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    data: expect.objectContaining({ subject: 'math' }),
+                })
+            );
         });
     });
 

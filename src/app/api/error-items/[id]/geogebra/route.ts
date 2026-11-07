@@ -1,35 +1,27 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { authOptions } from "@/lib/auth";
-import { getServerSession } from "next-auth";
-import { unauthorized, forbidden, notFound, internalError } from "@/lib/api-errors";
+import { forbidden, notFound, badRequest, internalError, taskAlreadyRunning } from "@/lib/api-errors";
+import { withUser } from "@/lib/api-handler";
+import type { AuthenticatedContext } from "@/lib/api-handler";
 import { createLogger } from "@/lib/logger";
-import { describeQuestion, trackBackgroundTask } from "@/lib/background-tasks";
+import { describeQuestion, findRunningTask, reserveBackgroundTask, runReservedTask } from "@/lib/background-tasks";
+import { serializeWrite } from "@/lib/db-write-queue";
 import { getAIService } from "@/lib/ai";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { withRecoverableResponse } from "@/lib/recoverable-response";
+import { geogebraAnalyzeSchema } from "@/lib/schemas/error-items";
 
 const logger = createLogger('api:error-items:geogebra');
 
+type RouteContext = { params: Promise<{ id: string }> };
+
 async function handlePost(
     req: Request,
-    { params }: { params: Promise<{ id: string }> }
+    { user, params }: RouteContext & AuthenticatedContext
 ) {
     const { id } = await params;
-    const session = await getServerSession(authOptions);
 
     try {
-        let user;
-        if (session?.user?.email) {
-            user = await prisma.user.findUnique({
-                where: { email: session.user.email },
-            });
-        }
-
-        if (!user) {
-            return unauthorized("Authentication required");
-        }
-
         const errorItem = await prisma.errorItem.findUnique({
             where: { id },
             include: { subject: true },
@@ -67,20 +59,39 @@ async function handlePost(
             });
         }
 
-        const limited = await consumeAiQuota(user, 'geogebra');
-        if (limited) return limited;
+        // 按目标防重复：同一错题同一时刻只允许一个「GeoGebra 演示」任务（reserve 失败返回 409，不扣额度、不调用 AI）
+        const target = `error-item:${id}:geogebra`;
+        const handle = reserveBackgroundTask({
+            userId: user.id,
+            kind: 'geogebra',
+            subject: describeQuestion(errorItem),
+            link: `/error-items/${id}`,
+            target,
+        });
+        if (!handle) {
+            return taskAlreadyRunning(findRunningTask(user.id, target) ?? { id: '', kind: 'geogebra', startedAt: '', target });
+        }
 
-        const aiService = getAIService();
+        const limited = await serializeWrite(() => consumeAiQuota(user, 'geogebra'));
+        if (limited) {
+            handle.cancel();
+            return limited;
+        }
+
+        const aiService = await getAIService({ userId: user.id, kind: 'geogebra' });
 
         // Use frontend-provided data if available (more up-to-date), fall back to DB
-        const body = await req.json().catch(() => ({}));
-        const questionText = body.questionText || errorItem.questionText;
-        const answerText = body.answerText || errorItem.answerText || "";
-        const previousErrors = body.previousErrors || "";
+        const parsed = geogebraAnalyzeSchema.safeParse(await req.json().catch(() => ({})));
+        if (!parsed.success) {
+            handle.cancel();
+            return badRequest("Invalid request body");
+        }
+        const { questionText: bodyQuestionText, answerText: bodyAnswerText, previousErrors } = parsed.data;
+        const questionText = bodyQuestionText || errorItem.questionText;
+        const answerText = bodyAnswerText || errorItem.answerText || "";
 
-        const result = await trackBackgroundTask(
-            { userId: user.id, kind: 'geogebra', subject: describeQuestion(errorItem), link: `/error-items/${id}` },
-            () => aiService.analyzeForGeogebra(questionText, answerText, errorItem.analysis || "", previousErrors)
+        const result = await runReservedTask(handle, () =>
+            aiService.analyzeForGeogebra(questionText, answerText, errorItem.analysis || "", previousErrors)
         );
 
         // If suitable, save the commands to the database
@@ -117,21 +128,10 @@ async function handlePost(
  * DELETE /api/error-items/:id/geogebra
  * 删除已生成的 GeoGebra 演示命令
  */
-export async function DELETE(
-    _req: Request,
-    { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = withUser(async (_req: Request, { user, params }: RouteContext & AuthenticatedContext) => {
     const { id } = await params;
-    const session = await getServerSession(authOptions);
 
     try {
-        const user = session?.user?.email
-            ? await prisma.user.findUnique({ where: { email: session.user.email } })
-            : null;
-        if (!user) {
-            return unauthorized("Authentication required");
-        }
-
         const errorItem = await prisma.errorItem.findUnique({ where: { id }, select: { userId: true } });
         if (!errorItem) {
             return notFound("Item not found");
@@ -147,7 +147,7 @@ export async function DELETE(
         logger.error({ error }, 'Error deleting GeoGebra commands');
         return internalError("Failed to delete GeoGebra commands");
     }
-}
+});
 
 /** 耗时 AI 请求：浏览器中断连接后，前端可通过 /api/requests/:id 取回响应 */
-export const POST = withRecoverableResponse(handlePost);
+export const POST = withRecoverableResponse(withUser(handlePost));

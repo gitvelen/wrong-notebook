@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './support/fixtures';
 import { acceptConfirmDialog, ADMIN_PASSWORD } from './helpers';
 
 async function login(page: Page) {
@@ -57,7 +57,7 @@ test('新建错题本、搜索和批量删除错题，清空后删除错题本',
     await expect(page.getByText('请先清空错题本中的所有题目')).toBeVisible();
 
     // 进入选择模式，选中一题批量删除
-    await page.getByRole('button', { name: '多选' }).click();
+    await page.getByRole('button', { name: '多选', exact: true }).click();
     const card = page.locator('a', { hasText: remove }).locator('..');
     await card.getByRole('checkbox').click();
     await page.getByRole('button', { name: /删除选中/ }).click();

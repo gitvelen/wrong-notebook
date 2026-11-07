@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
@@ -12,24 +12,34 @@ import type { SubjectKey, TagTreeNode } from "./tag-subjects";
 import { TagTreeNodeView } from "./tag-tree-node";
 
 interface StandardTagsProps {
+    tagSet: string;
     stats: TagStats[];
 }
 
-/** 标准标签库：按学科折叠，展开时按需加载标签树 */
-export function StandardTags({ stats }: StandardTagsProps) {
+/** 标准标签库：按学科折叠，展开时按需加载当前标签体系的标签树 */
+export function StandardTags({ tagSet, stats }: StandardTagsProps) {
     const { t } = useLanguage();
     // 未出现的学科表示尚未加载，[] 表示已加载但无数据
     const [tagsBySubject, setTagsBySubject] = useState<Partial<Record<SubjectKey, TagTreeNode[]>>>({});
     const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+    // 按标签 ID 查使用次数，避免不同学科、体系的同名标签互相串数
+    const countByTagId = useMemo(() => {
+        const map = new Map<string, number>();
+        for (const stat of stats) {
+            if (stat.tagSet !== tagSet) continue;
+            for (const id of stat.tagIds) map.set(id, stat.count);
+        }
+        return map;
+    }, [stats, tagSet]);
 
     const fetchTags = useCallback(async (subject: SubjectKey) => {
         try {
-            const data = await apiClient.get<{ tags: TagTreeNode[] }>(`/api/tags?subject=${subject}`);
+            const data = await apiClient.get<{ tags: TagTreeNode[] }>(`/api/tags?subject=${subject}&tagSet=${encodeURIComponent(tagSet)}`);
             setTagsBySubject(prev => ({ ...prev, [subject]: data.tags }));
         } catch (error) {
-            frontendLogger.error('[Tags]', 'Failed to fetch tags', { subject, error });
+            frontendLogger.error('[Tags]', 'Failed to fetch tags', { subject, tagSet, error });
         }
-    }, []);
+    }, [tagSet]);
 
     useEffect(() => {
         // 默认预加载数学标签
@@ -78,7 +88,7 @@ export function StandardTags({ stats }: StandardTagsProps) {
                                     </div>
                                 ) : (
                                     systemTags.map(node => (
-                                        <TagTreeNodeView key={node.id} node={node} stats={stats} expandedNodes={expandedNodes} onToggle={toggleNode} />
+                                        <TagTreeNodeView key={node.id} node={node} countByTagId={countByTagId} expandedNodes={expandedNodes} onToggle={toggleNode} />
                                     ))
                                 )}
                             </CardContent>

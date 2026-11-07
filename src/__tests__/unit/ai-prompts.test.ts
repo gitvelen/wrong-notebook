@@ -8,6 +8,7 @@ import {
     generateSimilarQuestionPrompt,
     generateReanswerPrompt,
     generateMasteryPrompt,
+    generateGradingPrompt,
     generateTagSuggestPrompt,
     generateFigurePrompt,
     generateGradeInstruction,
@@ -42,7 +43,7 @@ describe('AI Prompts', () => {
             const prompt = generateAnalyzePrompt('zh', 7, '数学');
             expect(prompt).toContain('<has_figure>');
             expect(prompt).toContain('<figure_svg>');
-            expect(prompt).toContain('12 个 XML 标签');
+            expect(prompt).toContain('14 个 XML 标签');
             expect(prompt).toContain('严禁使用 <image>、<script>');
         });
 
@@ -122,7 +123,7 @@ describe('AI Prompts', () => {
             expect(prompt).not.toContain('{{provider_hints}}');
         });
 
-        it('应该要求 AI 输出错因分析相关 XML 标签', () => {
+        it('应该要求 AI 输出错因分析相关 XML 标签并过滤人的思考和草稿', () => {
             const prompt = generateAnalyzePrompt('zh', null, '数学');
             expect(prompt).toContain('<wrong_answer_text>');
             expect(prompt).toContain('<mistake_status>');
@@ -130,6 +131,9 @@ describe('AI Prompts', () => {
             expect(prompt).toContain('wrong_attempt');
             expect(prompt).toContain('not_attempted');
             expect(prompt).toContain('unknown');
+            expect(prompt).toContain('【过滤草稿与思考过程规则】');
+            expect(prompt).toContain('必须过滤掉图片中人的思考过程、手写草稿');
+            expect(prompt).not.toContain('草稿或错误答案，请尽量按原样摘录');
         });
     });
 
@@ -240,11 +244,13 @@ describe('AI Prompts', () => {
             expect(prompt).toContain('重新判断');
         });
 
-        it('重新解题提示词不应允许无依据推断学生错因', () => {
+        it('重新解题提示词不应允许无依据推断学生错因，并要求过滤草稿和思考过程', () => {
             const prompt = generateReanswerPrompt('zh', questionText, '数学');
             expect(prompt).not.toContain('推断');
             expect(prompt).toContain('不要猜测');
             expect(prompt).toContain('当前图片中可见');
+            expect(prompt).toContain('【过滤草稿与思考过程规则】');
+            expect(prompt).not.toContain('草稿或错误答案，请尽量按原样摘录');
         });
     });
 
@@ -465,8 +471,9 @@ describe('掌握概率与学科相关提示词', () => {
     it('重新解题提示词要求输出学科标签', () => {
         const prompt = generateReanswerPrompt('zh', '1+1=?');
         expect(prompt).toContain('<subject>');
-        expect(prompt).toContain('8 个 XML 标签');
+        expect(prompt).toContain('10 个 XML 标签');
         expect(prompt).toContain('<difficulty_stars>');
+        expect(prompt).toContain('<question_type>');
     });
 });
 
@@ -508,5 +515,29 @@ describe('知识点重新标注提示词', () => {
         const prompt = generateTagSuggestPrompt({ questionText: '1+1=?', subject: '数学', allowedTags: ['加法'] });
         expect(prompt).toContain('【解答过程】\n（无）');
         expect(prompt).toContain('【学生作答】\n（无）');
+    });
+
+    it('提示词同时要求输出题型 key（与识别提示词的 question_type 一致）', () => {
+        const prompt = generateTagSuggestPrompt({
+            questionText: '下列说法正确的是（　）A.… B.…',
+            subject: '数学',
+            allowedTags: ['加法'],
+        });
+        expect(prompt).toContain('【题型规则】');
+        expect(prompt).toContain('single_choice');
+        expect(prompt).toContain('questionType');
+        expect(prompt).toContain('"questionType": "single_choice"');
+    });
+});
+
+
+describe('按题型判题', () => {
+    it('证明题检查论证，同时保留等价答案与其他正确解法', () => {
+        const prompt = generateGradingPrompt({ questionText: '证明两个底角相等', answerText: '两角相等', userAnswer: '两角相等' });
+        expect(prompt).toContain('只有结论而没有证明不能判对');
+        expect(prompt).toContain('接受正确的其他解法');
+        expect(prompt).toContain('核对答案是否等价');
+        expect(prompt).not.toContain('只看最终结论');
+        expect(prompt).toContain('【学生答案】\n两角相等');
     });
 });

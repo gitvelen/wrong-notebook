@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { unauthorized } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { describeQuestion, trackBackgroundTask } from "@/lib/background-tasks";
 import { getAIService } from "@/lib/ai";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { withRecoverableResponse } from "@/lib/recoverable-response";
+import { withUser } from "@/lib/api-handler";
+import type { AuthenticatedContext } from "@/lib/api-handler";
+import { geogebraAnalyzeBodySchema } from "@/lib/schemas/ai";
 
 const logger = createLogger('api:geogebra-analyze');
 
@@ -15,30 +15,23 @@ const logger = createLogger('api:geogebra-analyze');
  * Used by the correction editor where the error item hasn't been saved yet.
  * Does NOT require an item ID.
  */
-async function handlePost(req: Request) {
-    const session = await getServerSession(authOptions);
-
+async function handlePost(req: Request, { user, session }: AuthenticatedContext) {
     try {
-        if (!session?.user?.email) {
-            return unauthorized("Authentication required");
-        }
-
-        const body = await req.json();
-        const { questionText, answerText, analysis } = body;
-
-        if (!questionText?.trim()) {
+        const parsed = geogebraAnalyzeBodySchema.safeParse(await req.json().catch(() => null));
+        if (!parsed.success) {
             return NextResponse.json(
                 { suitable: false, commands: [], description: "题目文本为空" },
                 { status: 400 }
             );
         }
+        const { questionText, answerText, analysis } = parsed.data;
 
         const limited = await consumeAiQuota(session.user, 'geogebra');
         if (limited) return limited;
 
-        const aiService = getAIService();
+        const aiService = await getAIService({ userId: user.id, kind: 'geogebra' });
         const result = await trackBackgroundTask(
-            { userId: session.user.id, kind: 'geogebra', subject: describeQuestion({ questionText }) },
+            { userId: user.id, kind: 'geogebra', subject: describeQuestion({ questionText }) },
             () => aiService.analyzeForGeogebra(questionText, answerText || "", analysis || "")
         );
 
@@ -65,4 +58,4 @@ async function handlePost(req: Request) {
 }
 
 /** 耗时 AI 请求：浏览器中断连接后，前端可通过 /api/requests/:id 取回响应 */
-export const POST = withRecoverableResponse(handlePost);
+export const POST = withRecoverableResponse(withUser(handlePost));

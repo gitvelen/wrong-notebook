@@ -107,11 +107,17 @@ If a configuration has already been saved in the web UI, changing only the envir
 | Emitting SVG code | Static figures and SVG animated explanations |
 | Long enough output | Recognition results with figures and step-by-step animations |
 
-SVG figures and animations are generated as code by the language model; no image-generation API is called. Animations often need long output. When the output is truncated, the app retries with a higher output limit; the model itself must also support that length.
+SVG figures and animations are generated as code by the language model; no image-generation API is called. Animations often need long output. Every call requests the model's maximum output directly (the official limit for known models, 262144 (256K) for unknown models; if the API rejects it, the limit is read from the error, retried and remembered); the model itself must also support that length. Relay gateways that pre-charge by `max_tokens` (such as NewAPI) need enough balance to cover the pre-charge.
 
 ## Prompts and generation rules
 
 Admins can customize the recognition and similar-question templates on the "Prompts" tab. The app also applies common rules to generated questions: similar questions and exam questions are fill-in-the-blank or free-response, and the question text contains no question number, score or multiple-choice options.
+
+Grading checks equivalent results for calculation questions and the required reasoning for proofs and justification questions. Local matching only marks answers correct when no reasoning is required; other cases go to AI grading.
+
+GeoGebra text, inequalities and caption parameters are checked against a shared command list; regeneration includes actual execution errors as feedback.
+
+The application always supplies the output contract, field languages, grade scope and candidate-tag rules, including for older custom templates with missing variables. Recognition preserves the original question and student work; explanations and mistake analysis follow the interface language, while stored subject, grade and tag names remain unchanged. AI tags are filtered against the candidate list and deduplicated; manually added tags are unaffected. Mastery evaluation includes its evaluation time and practice intervals.
 
 Knowledge points are chosen from the tag library matching the notebook's school stage and subject. When adding a new provider, verify text input, image recognition, similar questions and animated explanations separately.
 
@@ -121,4 +127,4 @@ Knowledge points are chosen from the tag library matching the notebook's school 
 
 API keys are stored in the server configuration. Keep backups of `config/` safe, and only share redacted configuration, logs and error messages when reporting problems.
 
-Code entry points: [configuration](https://github.com/margrop/wrong-notebook/blob/main/src/lib/config.ts) · [provider selection](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/index.ts) · [prompts](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/prompts.ts).
+Code entry points: [configuration](https://github.com/margrop/wrong-notebook/tree/main/src/lib/config) · [provider selection](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/index.ts) · [prompts](https://github.com/margrop/wrong-notebook/tree/main/src/lib/ai/prompts).

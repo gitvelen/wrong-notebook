@@ -4,7 +4,7 @@
  * 本文件前后端共用，不要引入服务端模块。
  */
 
-import { inferSubjectFromName } from "@/lib/knowledge-tags";
+import { inferSubjectFromName } from "@/lib/tags/knowledge-tags";
 
 export const NOTEBOOK_STAGES = ["primary", "junior_high", "senior_high"] as const;
 export type NotebookStage = (typeof NOTEBOOK_STAGES)[number];
@@ -13,9 +13,13 @@ export const DEFAULT_NOTEBOOK_STAGE: NotebookStage = "primary";
 export const NOTEBOOK_SUBJECTS = ["math", "english", "chinese", "physics", "chemistry", "biology", "history", "geography", "politics"] as const;
 export type NotebookSubject = (typeof NOTEBOOK_SUBJECTS)[number];
 
-/** 各学段可选的学科：只列出标签库中有该学段知识点的学科 */
+/**
+ * 各学段可选的学科：只列出标签库中有该学段知识点的学科。
+ * 语文已包含小学各年级的章节和知识点，故小学可选「数学/英语/语文」；
+ * 其余学科（物理/化学/生物/历史/地理/政治）当前标签库仍无小学知识点，故不在小学列出。
+ */
 export const STAGE_SUBJECTS: Record<NotebookStage, readonly NotebookSubject[]> = {
-    primary: ["math", "english"],
+    primary: ["math", "english", "chinese"],
     junior_high: NOTEBOOK_SUBJECTS,
     senior_high: NOTEBOOK_SUBJECTS,
 };
@@ -26,11 +30,11 @@ export const SUBJECT_DISPLAY_NAMES: Record<NotebookSubject, string> = {
     biology: "生物", history: "历史", geography: "地理", politics: "政治",
 };
 
-// 标签库顶层节点是年级（如「三年级」「七年级上」「高一下」），按名称归入学段
+// 标签库顶层节点是年级（如「三年级」「七年级上」「高一下」，课标体系高中按册名为「高中 选必一」），按名称归入学段
 const STAGE_GRADE_PATTERNS: Record<NotebookStage, RegExp> = {
     primary: /^[一二三四五六]年级/,
     junior_high: /^[七八九]年级/,
-    senior_high: /^高[一二三]/,
+    senior_high: /^高[一二三中]/,
 };
 
 export function isNotebookStage(value: unknown): value is NotebookStage {

@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# pdfjs 静态资源（构建前由 scripts/copy-pdfjs-assets.mjs 从 pdfjs-dist 复制）
+/public/pdfjs/
+
 # production
 /build
 
@@ -29,6 +32,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# 构建时注入的私有扩展（见 doc/FORK_EXTENSION_POINTS.md），不入库
+/src/extensions/local/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -79,3 +85,4 @@ __pycache__/
 
 # 安装包构建产物
 /dist/
+scripts/data/

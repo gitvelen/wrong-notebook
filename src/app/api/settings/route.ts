@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
+import { withUser, withAdmin } from "@/lib/api-handler";
+import type { AuthenticatedContext } from "@/lib/api-handler";
 import { z } from "zod";
-import { authOptions } from "@/lib/auth";
-import { requireAdmin } from "@/lib/auth-utils";
 import { getAppConfig, updateAppConfig } from "@/lib/config";
-import { badRequest, forbidden, internalError, unauthorized } from "@/lib/api-errors";
+import { isValidConcurrencyLimit } from "@/lib/ai-concurrency-limit";
+import { badRequest, internalError } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import type { OpenAIInstance } from "@/types/api";
 import { isValidTimeZone } from "@/lib/date-time";
@@ -32,37 +32,34 @@ const ttsSchema = z.object({
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return unauthorized("Authentication required");
-    }
-
-    const config = getAppConfig();
-    // 完整配置（含 API Key）只给管理员；普通用户只需要页面用到的非敏感字段
-    if (!requireAdmin(session)) {
+/**
+ * GET /api/settings
+ * 管理员拿到完整配置（含 API Key）；普通用户只返回非敏感字段
+ */
+export const GET = withUser(async (_req: Request, { session }: AuthenticatedContext) => {
+    // 协议与遥测设置由专用接口读写，不随通用设置返回，避免保存时用旧值覆盖
+    const { eula, telemetry, ...config } = getAppConfig();
+    if (session.user.role !== 'admin') {
         return NextResponse.json({ aiProvider: config.aiProvider, timeouts: config.timeouts, timeZone: config.timeZone });
     }
     return NextResponse.json(config);
-}
+});
 
-export async function POST(req: Request) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-        return unauthorized("Authentication required");
-    }
-    if (!requireAdmin(session)) {
-        return forbidden("Admin access required");
-    }
-
+async function handlePost(req: Request) {
     try {
         const body = await req.json();
+        // 协议同意状态与遥测开关只能经专用接口修改（需同意协议才能开启外发）
+        delete body.eula;
+        delete body.telemetry;
         if (body.timeZone !== undefined) {
             if (!isValidTimeZone(body.timeZone)) return badRequest('INVALID_TIME_ZONE');
             body.timeZone = body.timeZone.trim();
         }
         if (body.aiDailyLimit !== undefined && !(Number.isInteger(body.aiDailyLimit) && body.aiDailyLimit >= 0)) {
             return badRequest('INVALID_AI_DAILY_LIMIT');
+        }
+        if (body.aiConcurrencyLimit !== undefined && !isValidConcurrencyLimit(body.aiConcurrencyLimit)) {
+            return badRequest('INVALID_AI_CONCURRENCY_LIMIT');
         }
         if (body.minimaxCode !== undefined) {
             const parsed = minimaxCodeSchema.safeParse(body.minimaxCode);
@@ -119,7 +116,7 @@ export async function POST(req: Request) {
             }
         }
 
-        const updatedConfig = updateAppConfig(body);
+        const { eula, telemetry, ...updatedConfig } = updateAppConfig(body);
         return NextResponse.json(updatedConfig);
     } catch (error) {
         logger.error({ error }, 'Failed to update settings');
@@ -127,4 +124,4 @@ export async function POST(req: Request) {
     }
 }
 
-
+export const POST = withAdmin(handlePost);

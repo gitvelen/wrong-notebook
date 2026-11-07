@@ -4,38 +4,19 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import { BarChart3, BookOpen, CalendarCheck, FileText, LogOut, PlusCircle, Shield } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { LogOut, Shield } from "lucide-react";
+import { EulaUpgradeDialog } from "@/components/eula/eula-upgrade-dialog";
+import { ImportTasksIndicator } from "@/components/import-tasks/import-tasks-indicator";
 import { SettingsDialog } from "@/components/settings-dialog";
+import { TelemetryNoticeBanner } from "@/components/telemetry-notice-banner";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useSetupRedirect } from "@/lib/use-setup-redirect";
+import { APP_BRAND, NAV_ITEMS, isBarePath } from "@/lib/app-navigation";
+import { useEulaGate } from "@/lib/hooks/use-eula-gate";
+import { usePageTelemetry } from "@/lib/hooks/use-page-telemetry";
+import { useSetupRedirect } from "@/lib/hooks/use-setup-redirect";
 import { cn } from "@/lib/utils";
-
-/** 登录、注册与打印页不显示导航 */
-const BARE_PATHS = [/^\/login/, /^\/register/, /^\/setup/, /^\/print-preview/, /^\/exams\/[^/]+\/print/];
-
-type NavKey = "home" | "notebooks" | "review" | "stats" | "exams";
-
-interface NavItem {
-    key: NavKey;
-    href: string;
-    icon: LucideIcon;
-    match: (pathname: string) => boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
-    { key: "home", href: "/", icon: PlusCircle, match: (p) => p === "/" },
-    {
-        key: "notebooks",
-        href: "/notebooks",
-        icon: BookOpen,
-        match: (p) => p.startsWith("/notebooks") || p.startsWith("/error-items") || p.startsWith("/practice"),
-    },
-    { key: "review", href: "/review", icon: CalendarCheck, match: (p) => p.startsWith("/review") },
-    { key: "stats", href: "/stats", icon: BarChart3, match: (p) => p.startsWith("/stats") || p.startsWith("/tags") },
-    { key: "exams", href: "/exams", icon: FileText, match: (p) => p.startsWith("/exams") },
-];
 
 /** 全局导航外壳：桌面端顶部导航栏，移动端顶部标题栏 + 底部标签栏 */
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -43,11 +24,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const { t } = useLanguage();
     const { data: session, status } = useSession();
     const isAdmin = session?.user?.role === "admin";
-    const isBare = BARE_PATHS.some((pattern) => pattern.test(pathname));
+    const isBare = isBarePath(pathname);
     useSetupRedirect(isAdmin && !isBare);
+    usePageTelemetry(pathname, status === "authenticated");
+    // 协议升级后管理员必须重新同意；/setup 等无导航页面同样拦截，普通用户不受影响
+    const eulaGate = useEulaGate(isAdmin && status === "authenticated");
+    const gate = eulaGate.pending && eulaGate.status
+        ? <EulaUpgradeDialog status={eulaGate.status} onAccept={eulaGate.accept} />
+        : null;
 
     if (isBare || status === "unauthenticated") {
-        return <>{children}</>;
+        return <>{children}{gate}</>;
     }
 
     const userName = session?.user?.name || session?.user?.email || "";
@@ -57,8 +44,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur-md supports-[backdrop-filter]:bg-card/70 print:hidden">
                 <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 md:h-16 md:px-8">
                     <Link href="/" className="flex shrink-0 items-center gap-2">
-                        <Image src="/icons/icon.png" alt="" width={32} height={32} className="rounded-lg" priority unoptimized />
-                        <span className="text-base font-semibold tracking-tight">{t.pageTitle.base}</span>
+                        <Image src={APP_BRAND.iconSrc} alt="" width={32} height={32} className="rounded-lg" priority unoptimized />
+                        {/* 手机上只显示图标，给「识别任务」入口留出位置 */}
+                        <span className="hidden text-base font-semibold tracking-tight sm:inline">{t.pageTitle.base}</span>
                     </Link>
 
                     <nav className="ml-4 hidden items-center gap-1 md:flex">
@@ -101,6 +89,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 </Button>
                             </Link>
                         )}
+                        <ImportTasksIndicator className="mr-1" />
+                        <ThemeToggle />
                         <SettingsDialog />
                         <Button
                             variant="ghost"
@@ -114,11 +104,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
                 </div>
             </header>
+            <TelemetryNoticeBanner enabled={isAdmin && status === "authenticated" && !eulaGate.pending} />
 
             <div className="pb-20 md:pb-0">{children}</div>
+            {gate}
 
             <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/90 backdrop-blur-md md:hidden print:hidden">
-                <div className="grid h-16 grid-cols-5">
+                <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${NAV_ITEMS.length}, minmax(0, 1fr))` }}>
                     {NAV_ITEMS.map((item) => {
                         const active = item.match(pathname);
                         const Icon = item.icon;

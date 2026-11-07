@@ -71,8 +71,13 @@ wrongNotebook/
 │   │   ├── markdown-renderer.tsx # Markdown/LaTeX 渲染
 │   │   ├── tag-input.tsx         # 标签输入组件
 │   │   ├── knowledge-filter.tsx  # 知识点筛选
-│   │   ├── practice-stats.tsx    # 练习统计
-│   │   ├── wrong-answer-stats.tsx# 错题统计
+│   │   ├── stats/                # 统计中心公共组件
+│   │   │   ├── chart-colors.ts   # 图表配色
+│   │   │   ├── stat-card.tsx     # 概览数字卡片
+│   │   │   ├── chart-tooltip.tsx # 通用图表提示框
+│   │   │   ├── subject-pie-chart.tsx # 学科分布饼图
+│   │   │   ├── practice-stats.tsx    # 练习统计
+│   │   │   └── wrong-answer-stats.tsx# 错题统计
 │   │   ├── user-welcome.tsx      # 欢迎信息
 │   │   ├── broadcast-notification.tsx # 广播通知
 │   │   ├── create-notebook-dialog.tsx  # 创建错题本
@@ -82,16 +87,21 @@ wrongNotebook/
 │   │   │   ├── index.ts          # 工厂函数 (getAIService)
 │   │   │   ├── types.ts          # AIService 接口定义
 │   │   │   ├── schema.ts         # Zod 校验 (ParsedQuestionSchema)
-│   │   │   ├── prompts.ts        # 提示词模板 (分析/相似题/重新解题)
+│   │   │   ├── base-provider.ts  # 提供商公共基类（14 个业务方法）
+│   │   │   ├── prompts/          # 提示词模板（按任务拆分）
 │   │   │   ├── gemini-provider.ts # Google Gemini Provider
 │   │   │   ├── openai-provider.ts # OpenAI Provider
 │   │   │   ├── azure-provider.ts  # Azure OpenAI Provider
 │   │   │   ├── anthropic-provider.ts  # Anthropic 及兼容接口 Provider
 │   │   │   ├── vendor-presets.ts  # 国产大模型官方渠道预设（复用 OpenAI Provider）
 │   │   │   └── tag-service.ts    # 标签查询服务
-│   │   ├── tag-data/             # 预置知识点标签数据 (按学科)
-│   │   │   ├── index.ts, math.ts, physics.ts, chemistry.ts, biology.ts
-│   │   │   ├── english.ts, chinese.ts, history.ts, geography.ts, politics.ts
+│   │   ├── tags/                 # 知识点标签
+│   │   │   ├── data/             # 预置知识点标签数据 (按学科)
+│   │   │   │   ├── index.ts, math.ts, physics.ts, chemistry.ts, biology.ts
+│   │   │   │   ├── english.ts, chinese.ts, history.ts, geography.ts, politics.ts
+│   │   │   ├── knowledge-tags.ts # 年级计算 + 科目推断
+│   │   │   ├── tag-recognition.ts # 标签识别
+│   │   │   └── seed/             # 标签种子导入
 │   │   ├── constants/            # 常量 (pagination.ts)
 │   │   ├── config.ts             # 应用配置 (app-config.json 读写 + env fallback)
 │   │   ├── logger.ts             # 服务端结构化日志 (自定义, 支持 pretty/JSON)
@@ -105,8 +115,6 @@ wrongNotebook/
 │   │   ├── translations.ts       # 国际化翻译
 │   │   ├── markdown-utils.ts     # Markdown 工具
 │   │   ├── image-utils.ts        # 图片压缩/处理
-│   │   ├── knowledge-tags.ts     # 年级计算 + 科目推断
-│   │   ├── tag-recognition.ts    # 标签识别
 │   │   ├── grade-calculator.ts   # 年级计算器
 │   │   ├── scheduler.ts          # 复习计划调度
 │   │   ├── global-proxy.ts       # 全局代理配置

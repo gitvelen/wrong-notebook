@@ -5,226 +5,22 @@ import { createLogger } from "@/lib/logger";
 import { startBackgroundTask } from "@/lib/background-tasks";
 import type { BackgroundTaskHandle } from "@/lib/background-tasks";
 import { createErrorResponse, ErrorCode } from "@/lib/api-errors";
-import { calculateGrade } from "@/lib/grade-calculator";
-import { inferSubjectFromName } from "@/lib/knowledge-tags";
-import { findParentTagIdForGrade } from "@/lib/tag-recognition";
-import { generateUniqueShortId } from "@/lib/short-id";
-import { scheduleMasteryEvaluation } from "@/lib/mastery";
-import { findDuplicateQuestion, recordDuplicateQuestion, runQuestionImportTransaction } from "@/lib/question-deduplication";
+import { importSchema, saveQuestion } from "@/lib/question/question-save";
 import { parseDifficultyStars } from "@/lib/ai/schema";
-import { getDefaultPaperLevel } from "@/lib/paper-level";
-import { getAppTimeZone } from "@/lib/config";
+import { isAiRejectionCode } from "@/lib/ai-limit-message";
 import { getErrorMessage } from "@/lib/error-message";
+import { validateImage } from "@/lib/openclaw/image-validation";
+import { callOpenclawAgent } from "@/lib/openclaw/agent-client";
+import type { OpenclawRecognizedData } from "@/lib/openclaw/agent-client";
 
 const logger = createLogger('api:openclaw:batch-upload');
 
 const MAX_IMAGES = 20;
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png'];
-const ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png'];
 
 interface ImageData {
     base64: string;
     mimeType: string;
     filename: string;
-}
-
-interface OpenclawResponse {
-    success: boolean;
-    data?: {
-        questionText: string;
-        answerText: string;
-        analysis: string;
-        wrongAnswerText?: string;
-        mistakeAnalysis?: string;
-        knowledgePoints: string[];
-        subject?: string;
-        errorType?: string;
-        source?: string;
-        difficultyStars?: number | null;
-    };
-    error?: string;
-}
-
-function validateImage(base64: string, filename: string, mimeType: string): { valid: boolean; error?: string } {
-    if (!base64 || base64.length === 0) {
-        return { valid: false, error: '图片数据为空' };
-    }
-
-    const extension = filename.toLowerCase().substring(filename.lastIndexOf('.'));
-    if (!ALLOWED_EXTENSIONS.includes(extension)) {
-        return { valid: false, error: `不支持的图片格式: ${extension}，仅支持 JPG、PNG` };
-    }
-
-    // mimeType 会写入题目原图的 data URL，须与扩展名一样限定为 JPG、PNG
-    if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
-        return { valid: false, error: `不支持的图片类型: ${String(mimeType).slice(0, 50)}，仅支持 image/jpeg、image/png` };
-    }
-
-    const estimatedSize = (base64.length * 3) / 4;
-    if (estimatedSize > MAX_IMAGE_SIZE) {
-        return { valid: false, error: `图片大小超过限制: ${Math.round(estimatedSize / 1024 / 1024)}MB > 5MB` };
-    }
-
-    return { valid: true };
-}
-
-async function callOpenclawAgent(imageBase64: string, mimeType: string, timeout: number): Promise<OpenclawResponse> {
-    const openclawUrl = process.env.OPENCLAW_API_URL || 'http://localhost:8080';
-    const openclawApiKey = process.env.OPENCLAW_API_KEY || '';
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-    try {
-        const response = await fetch(`${openclawUrl}/api/recognize`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(openclawApiKey ? { 'Authorization': `Bearer ${openclawApiKey}` } : {}),
-            },
-            body: JSON.stringify({
-                image: imageBase64,
-                mimeType: mimeType,
-            }),
-            signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            logger.error({ status: response.status, error: errorText }, 'Openclaw agent error');
-            return {
-                success: false,
-                error: `识别服务异常: HTTP ${response.status}`,
-            };
-        }
-
-        const data = await response.json() as OpenclawResponse;
-        return data;
-    } catch (error) {
-        clearTimeout(timeoutId);
-        
-        if (error instanceof Error && error.name === 'AbortError') {
-            logger.error('Openclaw agent timeout');
-            return {
-                success: false,
-                error: '识别服务超时',
-            };
-        }
-        
-        logger.error({ error: getErrorMessage(error) }, 'Openclaw agent request failed');
-        return {
-            success: false,
-            error: `识别服务请求失败: ${getErrorMessage(error)}`,
-        };
-    }
-}
-
-async function createErrorItem(
-    userId: string,
-    imageBase64: string,
-    mimeType: string,
-    parsedData: OpenclawResponse['data'],
-    subjectId?: string
-) {
-    const { questionText, answerText, analysis, knowledgePoints, errorType, source } = parsedData || {};
-    const difficultyStars = parseDifficultyStars(parsedData?.difficultyStars);
-
-    const content = {
-        questionText,
-        answerText,
-        analysis,
-        wrongAnswerText: parsedData?.wrongAnswerText,
-        mistakeAnalysis: parsedData?.mistakeAnalysis,
-        originalImageUrl: `data:${mimeType};base64,${imageBase64}`,
-    };
-    const result = await runQuestionImportTransaction(async (tx) => {
-        const duplicate = await findDuplicateQuestion(tx, userId, content);
-        if (duplicate) return recordDuplicateQuestion(tx, userId, duplicate, content);
-
-        const tagNames: string[] = Array.isArray(knowledgePoints) ? knowledgePoints : [];
-        const tagConnections: { id: string }[] = [];
-
-        const subject = subjectId ? await tx.subject.findUnique({ where: { id: subjectId } }) : null;
-        const subjectKey = subject ? inferSubjectFromName(subject.name) : null;
-
-        const user = await tx.user.findUnique({
-            where: { id: userId },
-            select: { educationStage: true, enrollmentYear: true }
-        });
-
-        let finalGradeSemester: string | null = null;
-        if (user?.educationStage && user?.enrollmentYear) {
-            finalGradeSemester = calculateGrade(user.educationStage, user.enrollmentYear, new Date(), 'zh', getAppTimeZone());
-        }
-
-        for (const tagName of tagNames) {
-            try {
-                let tag = await tx.knowledgeTag.findFirst({
-                    where: {
-                        name: tagName,
-                        OR: [
-                            { isSystem: true },
-                            { userId: userId },
-                        ],
-                    },
-                });
-
-                if (!tag) {
-                    const parentId = finalGradeSemester && subjectKey
-                        ? await findParentTagIdForGrade(finalGradeSemester, subjectKey, tx)
-                        : null;
-
-                    tag = await tx.knowledgeTag.create({
-                        data: {
-                            name: tagName,
-                            subject: subjectKey || 'other',
-                            isSystem: false,
-                            userId: userId,
-                            parentId: parentId || undefined,
-                        },
-                    });
-                }
-
-                tagConnections.push({ id: tag.id });
-            } catch (tagError) {
-                logger.error({ tagName, error: tagError }, 'Error processing tag');
-            }
-        }
-
-        const errorItem = await tx.errorItem.create({
-            data: {
-                shortId: await generateUniqueShortId(tx),
-                userId: userId,
-                subjectId: subjectId || undefined,
-                originalImageUrl: `data:${mimeType};base64,${imageBase64}`,
-                ocrText: questionText || null,
-                questionText: questionText || null,
-                answerText: answerText || null,
-                analysis: analysis || null,
-                knowledgePoints: JSON.stringify(tagNames),
-                gradeSemester: finalGradeSemester,
-                paperLevel: getDefaultPaperLevel(difficultyStars),
-                difficultyStars,
-                errorType: errorType || null,
-                source: source || 'Openclaw',
-                masteryLevel: 0,
-                tags: {
-                    connect: tagConnections,
-                },
-            },
-            include: {
-                tags: true,
-                subject: true,
-            },
-        });
-
-        return errorItem;
-    });
-    if ('duplicate' in result && result.duplicate) scheduleMasteryEvaluation([result.id]);
-    return result;
 }
 
 export async function POST(req: Request) {
@@ -409,13 +205,44 @@ export async function POST(req: Request) {
             }
 
             try {
-                const errorItem = await createErrorItem(
-                    dbUser.id,
-                    base64,
-                    mimeType,
-                    openclawResponse.data,
-                    subjectId
-                );
+                const parsed: OpenclawRecognizedData = openclawResponse.data;
+                const payload = importSchema.safeParse({
+                    questionText: parsed.questionText,
+                    answerText: parsed.answerText,
+                    analysis: parsed.analysis,
+                    wrongAnswerText: parsed.wrongAnswerText || null,
+                    mistakeAnalysis: parsed.mistakeAnalysis || null,
+                    knowledgePoints: Array.isArray(parsed.knowledgePoints) ? parsed.knowledgePoints : [],
+                    difficultyStars: parseDifficultyStars(parsed.difficultyStars),
+                    recognizedGradeSemester: parsed.gradeSemester ?? undefined,
+                    originalImageUrl: `data:${mimeType};base64,${base64}`,
+                    subjectId: subjectId || undefined,
+                });
+
+                if (!payload.success) {
+                    results.push({ success: false, index: i, error: `导入失败: 题目数据不合法` });
+                    continue;
+                }
+
+                const saveResult = await saveQuestion(dbUser, payload.data, {
+                    origin: 'openclaw',
+                    extraErrorItemData: {
+                        ocrText: parsed.questionText || null,
+                        errorType: parsed.errorType || null,
+                        source: parsed.source || 'Openclaw',
+                    },
+                });
+
+                if (!saveResult.ok) {
+                    results.push({
+                        success: false,
+                        index: i,
+                        error: isAiRejectionCode(saveResult.error.code) ? saveResult.error.code : `导入失败: ${saveResult.error.code}`,
+                    });
+                    continue;
+                }
+
+                const errorItem = saveResult.item;
 
                 results.push({
                     success: true,
@@ -436,7 +263,7 @@ export async function POST(req: Request) {
                 results.push({
                     success: false,
                     index: i,
-                    error: `数据库写入失败: ${getErrorMessage(dbError)}`,
+                    error: `导入失败: ${getErrorMessage(dbError)}`,
                 });
             }
         }
@@ -447,10 +274,10 @@ export async function POST(req: Request) {
         if (successCount === 0) currentTask.fail('ALL_FAILED');
         else currentTask.succeed();
 
-        logger.info({ 
-            total: results.length, 
-            success: successCount, 
-            failed: failCount 
+        logger.info({
+            total: results.length,
+            success: successCount,
+            failed: failCount
         }, 'Batch upload completed');
 
         const statusCode = failCount === 0 ? 201 : 207;

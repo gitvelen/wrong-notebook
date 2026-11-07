@@ -31,6 +31,8 @@ NEXTAUTH_URL=http://localhost:3000
 
 从其他设备访问时，把 `NEXTAUTH_URL` 改为实际访问应用的完整 URL。
 
+内网合规或演示环境不希望发送任何匿名统计时，在 `.env` 中加入 `TELEMETRY_DISABLED=true`，强制关闭本地记录、错误回报与外发；也可以保留开启，在“设置 → 用户管理 → 隐私与遥测”中按需调整，见[设置与用户管理](Settings-and-Users#隐私与遥测)。
+
 新建 `docker-compose.yml`：
 
 ```yaml
@@ -135,15 +137,15 @@ Dockerfile 在镜像内执行 Vitest、脚本语法检查和生产构建，并�
 | 安卓手机 / 平板（单机版） | 安装 `WrongNotebook-Android-Phone-<版本>.apk` 或 `WrongNotebook-Android-Tablet-<版本>.apk` | App 私有目录，卸载时删除 |
 | 安卓手机 / 平板（客户端） | 安装 `WrongNotebook-Android-Client-Phone-<版本>.apk` 或 `-Client-Tablet-<版本>.apk`，首次打开填写服务器地址 | 不保存数据，连接已部署的服务器 |
 
-Windows 安装包当前仍未签名，项目正在申请 SignPath Foundation。签名范围、职责和状态见 [Code signing policy](https://github.com/margrop/wrong-notebook/blob/main/doc/CODE_SIGNING.md)，数据处理见[隐私说明](https://github.com/margrop/wrong-notebook/blob/main/doc/PRIVACY.md)。维护者可在获批后按 [Windows 签名配置](https://github.com/margrop/wrong-notebook/blob/main/doc/WINDOWS_SIGNING.md)启用签名。
+Windows 安装包当前仍未签名；项目已通过 SignPath Foundation 审核，正在用测试证书接入，取得生产证书后启用签名。签名范围、职责和状态见 [Code signing policy](https://github.com/margrop/wrong-notebook/blob/main/doc/CODE_SIGNING.md)，数据处理见[隐私说明](https://github.com/margrop/wrong-notebook/blob/main/doc/PRIVACY.md)。维护者可按 [Windows 签名配置](https://github.com/margrop/wrong-notebook/blob/main/doc/WINDOWS_SIGNING.md)启用签名。
 
 桌面版只监听本机，默认端口 39300；飞牛OS 版监听 39300 端口，局域网内可访问。数据库、AI 配置和会话密钥都在数据目录中，备份时整体复制该目录。
 
-桌面安装包未签名。macOS 提示「已损坏」或无法打开时，先把应用拖入「应用程序」，再在终端执行以下命令，移除隔离属性并在本机重新自签名，然后打开应用：
+桌面安装包尚无受信任的签名：Windows 安装包未签名；macOS 安装包只有本地自签名（ad-hoc），未经 Apple 公证。macOS 首次打开被拦截时，先把应用拖入「应用程序」，到「系统设置 → 隐私与安全性」点击「仍要打开」；若仍提示「已损坏」（旧版本安装包常见），在终端执行以下命令，移除隔离属性并在本机重新签名，然后打开应用：
 
 ```bash
 xattr -cr /Applications/WrongNotebook.app
 codesign --force --deep --sign - /Applications/WrongNotebook.app
 ```
 
-安卓单机版在手机上运行服务端，无需另行部署，需要 Android 8.0 及以上的 64 位 ARM 设备；安卓客户端版只是连接服务器的外壳，需要先用上面任一方式部署服务端。详细说明见 [INSTALL_PACKAGES.md](https://github.com/margrop/wrong-notebook/blob/main/doc/INSTALL_PACKAGES.md)。
+安卓单机版在手机上运行服务端，无需另行部署，需要 Android 8.0 及以上的 64 位 ARM 设备；两个安卓版本都需要 Android System WebView 111 及以上；安卓客户端版只是连接服务器的外壳，需要先用上面任一方式部署服务端。详细说明见 [INSTALL_PACKAGES.md](https://github.com/margrop/wrong-notebook/blob/main/doc/INSTALL_PACKAGES.md)。

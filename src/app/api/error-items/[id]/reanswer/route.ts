@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAIService } from "@/lib/ai";
-import { getCurrentUser } from "@/lib/current-user";
-import { unauthorized, notFound, badRequest, internalError } from "@/lib/api-errors";
+import { notFound, badRequest, internalError, taskAlreadyRunning } from "@/lib/api-errors";
+import { withUser } from "@/lib/api-handler";
+import type { AuthenticatedContext } from "@/lib/api-handler";
 import { createLogger } from "@/lib/logger";
-import { describeQuestion, trackBackgroundTask } from "@/lib/background-tasks";
+import { describeQuestion, findRunningTask, reserveBackgroundTask, runReservedTask } from "@/lib/background-tasks";
 import { resolveNotebookScope, SUBJECT_DISPLAY_NAMES } from "@/lib/notebook-scope";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { withRecoverableResponse } from "@/lib/recoverable-response";
+import { reanswerSchema } from "@/lib/schemas/error-items";
+import { trackReanswer } from "@/lib/telemetry/events";
 
 const logger = createLogger('api:error-items:reanswer');
+
+type RouteContext = { params: Promise<{ id: string }> };
 
 /**
  * POST /api/error-items/:id/reanswer
@@ -18,16 +23,11 @@ const logger = createLogger('api:error-items:reanswer');
  */
 async function handlePost(
     req: Request,
-    { params }: { params: Promise<{ id: string }> }
+    { user, params }: RouteContext & AuthenticatedContext
 ) {
     const { id } = await params;
 
     try {
-        const user = await getCurrentUser();
-        if (!user) {
-            return unauthorized("Authentication required");
-        }
-
         const item = await prisma.errorItem.findUnique({
             where: { id },
             select: {
@@ -46,20 +46,36 @@ async function handlePost(
             return badRequest("NO_QUESTION_TEXT");
         }
 
-        const body = await req.json().catch(() => ({}));
-        const language = body?.language === 'en' ? 'en' : 'zh';
+        const parsed = reanswerSchema.safeParse(await req.json().catch(() => ({})));
+        const language = parsed.success && parsed.data.language === 'en' ? 'en' : 'zh';
         const scope = item.subject ? resolveNotebookScope(item.subject) : null;
         const subject = scope?.subject ? SUBJECT_DISPLAY_NAMES[scope.subject] : null;
         // 原图以 data URL 保存；文字录入的题目没有原图
         const image = item.originalImageUrl?.startsWith('data:') ? item.originalImageUrl : undefined;
 
         const questionText = item.questionText;
-        const limited = await consumeAiQuota(user, 'reanswer');
-        if (limited) return limited;
 
-        const result = await trackBackgroundTask(
-            { userId: user.id, kind: 'reanswer', subject: describeQuestion(item), link: `/error-items/${id}` },
-            () => getAIService().reanswerQuestion(questionText, language, subject, image, item.gradeSemester)
+        // 按目标防重复：同一题目同一时刻只允许一个「重新解答」任务（reserve 失败返回 409，不扣额度、不调用 AI）
+        const target = `error-item:${id}:reanswer`;
+        const handle = reserveBackgroundTask({
+            userId: user.id,
+            kind: 'reanswer',
+            subject: describeQuestion(item),
+            link: `/error-items/${id}`,
+            target,
+        });
+        if (!handle) {
+            return taskAlreadyRunning(findRunningTask(user.id, target) ?? { id: '', kind: 'reanswer', startedAt: '', target });
+        }
+
+        const limited = await consumeAiQuota(user, 'reanswer');
+        if (limited) {
+            handle.cancel();
+            return limited;
+        }
+
+        const result = await runReservedTask(handle, async () =>
+            trackReanswer(async () => (await getAIService({ userId: user.id, kind: 'reanswer' })).reanswerQuestion(questionText, language, subject, image, item.gradeSemester))
         );
         if (!result.answerText.trim() && !result.analysis.trim()) {
             return badRequest("EMPTY_ANSWER");
@@ -80,4 +96,4 @@ async function handlePost(
 }
 
 /** 耗时 AI 请求：浏览器中断连接后，前端可通过 /api/requests/:id 取回响应 */
-export const POST = withRecoverableResponse(handlePost);
+export const POST = withRecoverableResponse(withUser(handlePost));

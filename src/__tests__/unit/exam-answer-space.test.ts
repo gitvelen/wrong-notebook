@@ -2,18 +2,24 @@ import { describe, it, expect } from 'vitest';
 import {
     AUTO_ANSWER_SPACE_PX,
     FIXED_ANSWER_SPACE_PX,
+    MAX_CUSTOM_ANSWER_SPACE_PX,
+    MIN_CUSTOM_ANSWER_SPACE_PX,
     SOLUTION_EXTRA_PER_PART_PX,
     SOLUTION_MAX_PX,
+    clampAnswerSpacePx,
+    normalizeCustomAnswerSpacePx,
     countQuestionParts,
     detectQuestionKind,
     getAnswerSpacePx,
     isAnswerSpaceMode,
-} from '@/lib/exam-answer-space';
+    resolveQuestionAnswerSpacePx,
+} from '@/lib/exam/exam-answer-space';
 
 describe('detectQuestionKind', () => {
     it('识别逐行或同行排列的选项为选择题', () => {
         expect(detectQuestionKind('下列哪个数是质数？\nA. 4\nB. 6\nC. 7\nD. 9')).toBe('choice');
         expect(detectQuestionKind('计算 $2+3$ 的值（ ）  A．4  B．5  C．6  D．7')).toBe('choice');
+        expect(detectQuestionKind('下列正确的是（ ） A. x=1 B. x=2 C. x=3 D. x=4')).toBe('choice');
         expect(detectQuestionKind('Which is prime? (A) 4 (B) 6 (C) 7 (D) 9')).toBe('choice');
     });
 
@@ -27,11 +33,14 @@ describe('detectQuestionKind', () => {
         expect(detectQuestionKind('True or False: every square is a rectangle.')).toBe('judgment');
     });
 
-    it('识别下划线、空括号等填空标记', () => {
+    it('识别下划线、空括号等填空标记，而多小问或证明解答题仍按大题处理', () => {
         expect(detectQuestionKind('$3 \\times 4 =$ ______。')).toBe('fill');
         expect(detectQuestionKind('一个三角形的内角和是（ ）度。')).toBe('fill');
+        expect(detectQuestionKind('2 + 3 = ()')).toBe('fill');
         expect(detectQuestionKind('圆的周长公式是 \\_\\_\\_。')).toBe('fill');
         expect(detectQuestionKind('$x = \\underline{\\quad}$')).toBe('fill');
+        expect(detectQuestionKind('已知函数。（1）当 x=1 时，y=____；（2）求函数的最小值。')).toBe('solution');
+        expect(detectQuestionKind('如图，已知 AB=____，求证：△ABC ≌ △DEF。')).toBe('solution');
     });
 
     it('乘号和函数括号不影响判断，其余按解答题处理', () => {
@@ -75,5 +84,33 @@ describe('isAnswerSpaceMode', () => {
         expect(isAnswerSpaceMode('large')).toBe(true);
         expect(isAnswerSpaceMode('huge')).toBe(false);
         expect(isAnswerSpaceMode(null)).toBe(false);
+    });
+});
+
+describe('clampAnswerSpacePx & resolveQuestionAnswerSpacePx', () => {
+    it('限制单题自定义留白高度在有效区间并四舍五入', () => {
+        expect(clampAnswerSpacePx(-20)).toBe(MIN_CUSTOM_ANSWER_SPACE_PX);
+        expect(clampAnswerSpacePx(999)).toBe(MAX_CUSTOM_ANSWER_SPACE_PX);
+        expect(clampAnswerSpacePx(135.6)).toBe(136);
+        expect(clampAnswerSpacePx(Number.NaN)).toBe(MIN_CUSTOM_ANSWER_SPACE_PX);
+    });
+
+    it('单题自定义留白优先于全局模式，未设置时回退到全局模式', () => {
+        expect(resolveQuestionAnswerSpacePx('auto', '1 + 1 = ____', 200)).toBe(200);
+        expect(resolveQuestionAnswerSpacePx('large', '求解。', 0)).toBe(0);
+        expect(resolveQuestionAnswerSpacePx('auto', '1 + 1 = ____', null)).toBe(AUTO_ANSWER_SPACE_PX.fill);
+        expect(resolveQuestionAnswerSpacePx('small', '求解。', undefined)).toBe(FIXED_ANSWER_SPACE_PX.small);
+    });
+});
+
+describe('normalizeCustomAnswerSpacePx', () => {
+    it('0～600 的整数原样保留', () => {
+        expect(normalizeCustomAnswerSpacePx(0)).toBe(0);
+        expect(normalizeCustomAnswerSpacePx(240)).toBe(240);
+        expect(normalizeCustomAnswerSpacePx(600)).toBe(600);
+    });
+
+    it.each([undefined, null, -1, 601, 50.5, Number.NaN, '120'])('缺省或非法值 %s 视为未设置', (value) => {
+        expect(normalizeCustomAnswerSpacePx(value)).toBeNull();
     });
 });

@@ -1,4 +1,4 @@
-export { getItemTags } from "@/lib/item-tags";
+export { getItemTags } from "@/lib/tags/item-tags";
 
 export interface KnowledgeTag {
     id: string;
@@ -32,6 +32,9 @@ export interface ErrorItemDetail {
     difficultyStars?: number | null;
     hasFigure?: boolean;
     figureSvg?: string | null;
+    figureScale?: number;
+    figureAlign?: 'left' | 'center' | 'right' | string;
+    questionType?: string | null;   // 题型，取值来自 question-type.ts
     geogebraCommands?: string | null;
     svgAnimation?: string | null;    // 中文版动画讲解
     svgAnimationEn?: string | null;  // 英文版动画讲解

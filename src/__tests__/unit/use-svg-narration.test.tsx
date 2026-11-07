@@ -23,6 +23,7 @@ const cloud = vi.hoisted(() => ({
     prepareSpeech: vi.fn(),
     ready: false,
     unlock: vi.fn(),
+    trackTtsUsed: vi.fn(),
 }));
 
 vi.mock('@/lib/cloud-speech', () => ({
@@ -33,9 +34,10 @@ vi.mock('@/lib/cloud-speech', () => ({
     prepareSpeech: cloud.prepareSpeech,
     isSpeechReady: () => Promise.resolve(cloud.ready),
     unlockSpeechAudio: cloud.unlock,
+    trackTtsUsed: cloud.trackTtsUsed,
 }));
 
-import { resetSpeechUnlockForTest, segmentIndexAt, useSvgNarration } from '@/lib/use-svg-narration';
+import { resetSpeechUnlockForTest, segmentIndexAt, useSvgNarration } from '@/lib/hooks/use-svg-narration';
 import type { NarrationSegment } from '@/lib/svg-animation';
 
 type Narration = ReturnType<typeof useSvgNarration>;

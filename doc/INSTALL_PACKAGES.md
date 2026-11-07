@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | npm | `npm install -g wrong-notebook` | 需要 Node.js 22.15 及以上，适合服务器或已有 Node 环境 |
 | Windows | `WrongNotebook-Win-Setup-<版本>-x64.exe` / `WrongNotebook-Win-Portable-<版本>-x64.exe` | 安装版 / 免安装版 |
-| macOS | `WrongNotebook-Mac-<版本>-arm64.dmg`（Apple 芯片）/ `-x64.dmg`（Intel），另有同名 `.zip` | 未签名，首次打开需右键选择「打开」 |
+| macOS | `WrongNotebook-Mac-<版本>-arm64.dmg`（Apple 芯片）/ `-x64.dmg`（Intel），另有同名 `.zip` | 本地自签名（ad-hoc），未经 Apple 公证；首次打开需到「系统设置 → 隐私与安全性」点击「仍要打开」 |
 | Linux | `WrongNotebook-Linux-<版本>-<架构>.AppImage` / `.deb` | x86_64 与 arm64 |
 | 飞牛OS | `WrongNotebook-FnOS-<版本>-x86.fpk` / `-arm.fpk` | 在应用中心手动安装，依赖应用中心的 Node.js v24 |
 | 安卓手机 | `WrongNotebook-Android-Phone-<版本>.apk` | 单机版，内置服务端，无需部署服务器；锁定竖屏 |
@@ -19,6 +19,7 @@
 
 - 首次启动复制预置数据库（含系统标签，不含管理员）。服务启动后在日志中打印一次性初始化链接，令牌同时保存在数据目录的 `config/setup-token`；打开链接设置管理员账号后令牌即删除。桌面版和安卓单机版会自动打开该链接。
 - 每次启动执行 `prisma migrate deploy`，只做增量迁移，升级保留已有数据。
+- 启动时增量补齐小学、初中和高中语文的内置章节与知识点，不删除已有标签，保留标签 ID、题目关联、自定义标签和其他标签体系；重复启动不会重复创建。
 - 数据库、`config/app-config.json` 和自动生成的 NextAuth 密钥都在数据目录，安装目录可以只读。
 
 ## 各平台说明
@@ -41,14 +42,14 @@ wrong-notebook --port 3000 --host 0.0.0.0 --data-dir ~/.wrong-notebook
 - 服务只监听 `127.0.0.1`，默认端口 39300，被占用时自动顺延。
 - 数据目录：Windows `%APPDATA%\WrongNotebook\data`，macOS `~/Library/Application Support/WrongNotebook/data`，Linux `~/.config/WrongNotebook/data`。服务日志在数据目录的 `logs/server.log`。
 - 卸载不会删除数据目录。
-- 当前 Windows 安装包仍未签名，可能出现 SmartScreen 提示，选择「仍要运行」。项目正在申请 SignPath Foundation，获批后的构建可按 [Windows 签名配置](WINDOWS_SIGNING.md)接入；实际签名范围和职责见 [Code signing policy](CODE_SIGNING.md)，数据处理见[隐私说明](PRIVACY.md)。
-- macOS 安装包未经 Apple 签名，提示「已损坏」或无法打开时，执行 `xattr -cr /Applications/WrongNotebook.app` 和 `codesign --force --deep --sign - /Applications/WrongNotebook.app`（移除隔离属性并在本机重新自签名）。
+- 当前 Windows 安装包仍未签名，可能出现 SmartScreen 提示，选择「仍要运行」。项目已通过 SignPath Foundation 审核，正在用测试证书接入，取得生产证书后按 [Windows 签名配置](WINDOWS_SIGNING.md)启用；实际签名范围和职责见 [Code signing policy](CODE_SIGNING.md)，数据处理见[隐私说明](PRIVACY.md)。
+- macOS 安装包在打包时做了 ad-hoc 签名（`packaging/desktop/package.json` 中 `mac.identity` 为 `-`，并关闭 hardened runtime），整个 `.app` 能通过 `codesign --verify --deep --strict`，但未经 Apple 公证，Gatekeeper 仍会拦截首次打开。在「系统设置 → 隐私与安全性」点击「仍要打开」即可；若仍提示「已损坏」（旧版本安装包常见），执行 `xattr -cr /Applications/WrongNotebook.app` 和 `codesign --force --deep --sign - /Applications/WrongNotebook.app`（移除隔离属性并在本机重新自签名）。
 - Linux 的 Prisma 引擎需要 OpenSSL 3（Ubuntu 22.04、Debian 12 及更新版本）。
 
 ### 飞牛OS
 
 1. 在应用中心安装 Node.js v24。
-2. 应用中心 →「手动安装」，选择与设备架构对应的 `.fpk`。安装向导中设置管理员邮箱和密码（至少 6 位，不能是 `123456`）；安装脚本只保存密码的 bcrypt 哈希（`config/initial-admin.json`），服务首次启动时据此创建管理员后删除该文件。
+2. 应用中心 →「手动安装」，选择与设备架构对应的 `.fpk`。安装向导中设置管理员邮箱和密码（至少 6 位，不能是 `123456`）；安装脚本只保存密码的 bcrypt 哈希（`config/initial-admin.json`），服务首次启动时据此创建管理员后删除该文件。向导最后一步须勾选同意[使用协议](EULA.md)，同意的版本一并写入该文件，首次启动时记为管理员已同意并默认开启匿名遥测外发（可在设置中关闭）。
 3. 安装后从桌面图标打开，用向导中设置的账号登录，服务端口 39300，局域网内其他设备也可通过 `http://<NAS 地址>:39300` 访问。
 
 数据保存在应用数据目录（`@appdata/wrongnotebook`），日志为其中的 `wrong-notebook.log`。保留旧数据重装时沿用原有账号，向导中填写的管理员会被忽略；向导设置失败时（见 `install.log`），改用 `wrong-notebook.log` 中的初始化链接。
@@ -63,6 +64,7 @@ wrong-notebook --port 3000 --host 0.0.0.0 --data-dir ~/.wrong-notebook
 | 数据 | 保存在本机，卸载 App 时删除 | 保存在服务器 |
 | 安装包大小 | 约 75MB | 约 2MB |
 | 系统要求 | Android 8.0 及以上，64 位 ARM（arm64-v8a） | Android 7.0 及以上 |
+| 系统 WebView | Android System WebView 111 及以上，过旧时页面顶部提示升级 | 同左 |
 | 包名 | `com.margrop.wrongnotebook.standalone` | `com.margrop.wrongnotebook` |
 
 两种 App 包名不同，可以同时安装；同一种的手机版和平板版包名相同，可以互相覆盖安装。
@@ -90,7 +92,7 @@ App 切到后台后系统可能结束服务端进程，回到前台时会自动�
 
 两种 App 都补齐了 WebView 默认不具备的能力：
 
-- 上传图片时可选择拍照或从相册、文件中选取。
+- 网页的「拍照」「相册」「从文件选择」分别打开系统相机、照片选择器（Android 13 起为系统照片选择器）和文件选择器；拍照调用系统相机应用，App 不申请相机权限，相机不可用时提示改用相册或文件。「从文件选择」不限类型，图片类入口额外列出 HEIC/HEIF 类型，便于选到被系统标成未知类型的照片。
 - 导出备份、下载试卷等文件通过系统「另存为」保存。
 - 打印预览中的「打印」调用系统打印，可另存为 PDF。
 - 错题本以外的链接（项目主页、AI 服务商控制台等）用系统浏览器打开。
@@ -113,13 +115,15 @@ node scripts/package/build.mjs android                # 单机版和客户端版
 
 桌面版使用 Electron 45（内置 Node.js 24）和 electron-builder 26，服务端由 Electron 自带的 Node 运行。electron-builder 26 复制 `extraResources` 时总会跳过来源目录根层的 `node_modules`，因此 `packaging/desktop/package.json` 把 `server/node_modules` 单独列为一项；打包后 `build.mjs` 会检查 Prisma Client 等关键文件是否进入安装包。
 
+PDF 导入的浏览器端解析需要 pdfjs-dist 的 CMap 与标准字体数据（`public/pdfjs/`），`npm run build` 前会通过 `prebuild` 自动从 `pdfjs-dist` 包内复制到 `public/pdfjs/`（约 2.5MB），无需手动处理。
+
 安卓 APK 构建需要 JDK 17、Android SDK（`ANDROID_HOME`，compileSdk 35、build-tools 35.0.0）和 Gradle 8.11（PATH 中的 `gradle`，或用环境变量 `GRADLE` 指定）。客户端版不依赖 `bundle`；单机版还需要：
 
 - `dist/bundle`：与其他安装包相同的服务端。
 - 安卓 Prisma 引擎：Prisma 不提供安卓版本，`build-android-prisma-engines.sh` 按项目安装的 Prisma 版本下载对应提交的 prisma-engines 源码，用 Android NDK（`ANDROID_NDK_HOME`）和 rustup 交叉编译查询引擎与迁移引擎，约需 15–30 分钟。输出目录默认 `dist/android-prisma-engines`，可用 `ANDROID_PRISMA_ENGINES_DIR` 指定。
 - `patchelf`（可用 `PATCHELF` 指定路径）和 `zip`。
 
-单机版内置的 Node.js 取自 [Termux](https://termux.dev) 软件源的 `nodejs-lts` 及其依赖库（构建时按软件源索引校验 SHA256，可用 `TERMUX_MIRROR` 指定镜像）。安卓只允许执行 `nativeLibraryDir` 中的程序，因此 Node.js、依赖库和引擎都以 `lib*.so` 的形式放进 `jniLibs/arm64-v8a`，由 `scripts/package/android-runtime.mjs` 改名并用 patchelf 改写依赖；服务端打包为 `assets/server.zip`，首次启动时解压。各组件的许可证随 APK 放在 `assets/licenses/`。
+单机版内置的 Node.js 取自 [Termux](https://termux.dev) 软件源的 `nodejs-lts` 及其依赖库（构建时按软件源索引校验 SHA256，可用 `TERMUX_MIRROR` 指定镜像）。安卓只允许执行 `nativeLibraryDir` 中的程序，因此 Node.js、依赖库和引擎都以 `lib*.so` 的形式放进 `jniLibs/arm64-v8a`，由 `scripts/package/android-runtime.mjs` 改名并用 patchelf 改写依赖；服务端打包为 `assets/server.zip`，首次启动时解压。各组件的许可证随 APK 放在 `assets/licenses/`。网页端按需加载的 HEIC/HEIF 转换组件（heic-to 及其包含的 libheif、libde265）的第三方说明与许可证位于 `public/third-party-licenses/heic-to/`，随服务端 `public/` 目录进入 Docker 镜像、npm 包、桌面版、飞牛OS 安装包和单机版的 `server.zip`。
 
 versionCode 由版本号换算（`scripts/package/android-version.mjs`）：预览版 `2026.10.22-3` 为 `2026102203`，正式版 `2026.10.22` 为 `2026102299`，保证升级时递增。
 
@@ -158,3 +162,7 @@ npm 使用 [Trusted Publishing](https://docs.npmjs.com/trusted-publishers)（OID
 | `packaging/android/` | 安卓 App Gradle 工程（单机版 / 客户端版 × 手机版 / 平板版） |
 | `scripts/package/android-runtime.mjs` | 组装安卓单机版内置的 Node.js、Prisma 引擎和服务端 |
 | `scripts/package/build-android-prisma-engines.sh` | 交叉编译安卓 Prisma 引擎 |
+
+## 部署形态标识
+
+各安装包的启动器设置环境变量 `WN_PLATFORM`，用于匿名遥测的 `instance_alive` 事件区分部署形态：Docker 镜像为 `docker`，直接运行 npm 包为 `npm`，桌面版为 `desktop`，飞牛OS 为 `fnos`，安卓单机版为 `android`，其他方式缺省为 `other`。该值只取以上枚举，不包含任何实例标识；设置 `TELEMETRY_DISABLED=true` 可关闭全部遥测，见[隐私说明](PRIVACY.md)。

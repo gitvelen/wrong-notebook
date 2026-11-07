@@ -4,7 +4,7 @@
  * 测试 Zod 验证 schema，特别是新增的错因分析字段
  */
 import { describe, it, expect } from 'vitest';
-import { ParsedQuestionSchema, safeParseParsedQuestion, parseMasteryEvaluation, extractJsonObject, normalizeSubject, parseTagSuggestion, parseDifficultyStars } from '@/lib/ai/schema';
+import { ParsedQuestionSchema, safeParseParsedQuestion, parseMasteryEvaluation, extractJsonObject, normalizeSubject, parseTagSuggestion, parseDifficultyStars, parseQuestionType, stripThinkingTags } from '@/lib/ai/schema';
 
 describe('ParsedQuestionSchema 验证', () => {
     const validBaseQuestion = {
@@ -150,8 +150,10 @@ describe('ParsedQuestionSchema 验证', () => {
 });
 
 describe('掌握概率解析与学科规范化', () => {
-    it('兼容代码块和前后多余文字', () => {
+    it('兼容代码块和前后多余文字，并过滤推理模型的思考块', () => {
         expect(extractJsonObject('结果：```json\n{"a": 1}\n```')).toEqual({ a: 1 });
+        expect(extractJsonObject('<think>{"a": 999}</think>{"a": 1}')).toEqual({ a: 1 });
+        expect(stripThinkingTags('<thinking>先草稿演算\n<question_text>伪题干</question_text></thinking><question_text>真题干</question_text>')).toBe('<question_text>真题干</question_text>');
         expect(parseMasteryEvaluation('好的 {"probability": "64", "reason": "一般"} 以上')).toEqual({ probability: 0.64, reason: '一般' });
     });
 
@@ -192,7 +194,7 @@ describe('parseDifficultyStars', () => {
     });
 
     it('知识点建议同时解析难度星级，缺失时为 null', () => {
-        expect(parseTagSuggestion('{"tags": ["植树问题"], "difficultyStars": 4}', ['植树问题'])).toEqual({ tags: ['植树问题'], difficultyStars: 4 });
+        expect(parseTagSuggestion('{"tags": ["植树问题"], "difficultyStars": 4}', ['植树问题'])).toEqual({ tags: ['植树问题'], difficultyStars: 4, questionType: null });
         expect(parseTagSuggestion('{"tags": ["植树问题"]}', ['植树问题']).difficultyStars).toBeNull();
     });
 
@@ -201,5 +203,52 @@ describe('parseDifficultyStars', () => {
         expect(ParsedQuestionSchema.safeParse({ ...base, difficultyStars: 3 }).success).toBe(true);
         expect(ParsedQuestionSchema.safeParse({ ...base, difficultyStars: null }).success).toBe(true);
         expect(ParsedQuestionSchema.safeParse({ ...base, difficultyStars: 6 }).success).toBe(false);
+    });
+});
+
+describe('parseQuestionType', () => {
+    it.each([
+        ['single_choice', 'single_choice'],
+        ['multiple_choice', 'multiple_choice'],
+        ['true_false', 'true_false'],
+        ['fill_blank', 'fill_blank'],
+        ['calculation', 'calculation'],
+        ['solution', 'solution'],
+        ['reading', 'reading'],
+        ['cloze', 'cloze'],
+        ['writing', 'writing'],
+        ['other', 'other'],
+        // 中文名也能识别
+        ['单选题', 'single_choice'],
+        ['多选题', 'multiple_choice'],
+        ['判断题', 'true_false'],
+        ['填空题', 'fill_blank'],
+        ['计算题', 'calculation'],
+        ['解答题', 'solution'],
+        ['阅读理解', 'reading'],
+        ['完形填空', 'cloze'],
+        ['写作', 'writing'],
+        ['其他', 'other'],
+        // 英文别名
+        ['Single Choice', 'single_choice'],
+        ['fill in the blank', 'fill_blank'],
+        // 大小写与空白
+        ['  Single_Choice  ', 'single_choice'],
+    ])('识别 %j 为 %j', (input, expected) => {
+        expect(parseQuestionType(input)).toBe(expected);
+    });
+
+    it.each([[''], ['未知题型'], [null], [undefined], [123], [{}], ['single_choice_extra']])('无法识别的 %j 返回 null', (input) => {
+        expect(parseQuestionType(input)).toBeNull();
+    });
+
+    it('ParsedQuestionSchema 接受合法 key、中文名与 null，宽松接受非法值', () => {
+        const base = { questionText: 'q', answerText: 'a', analysis: 'x', subject: '数学', knowledgePoints: [] };
+        expect(ParsedQuestionSchema.safeParse({ ...base, questionType: 'single_choice' }).success).toBe(true);
+        expect(ParsedQuestionSchema.safeParse({ ...base, questionType: '单选题' }).success).toBe(true);
+        expect(ParsedQuestionSchema.safeParse({ ...base, questionType: null }).success).toBe(true);
+        expect(ParsedQuestionSchema.safeParse({ ...base }).success).toBe(true);
+        // 非法值不会导致整体解析失败（保存时 normalizeQuestionType 会再规范化）
+        expect(ParsedQuestionSchema.safeParse({ ...base, questionType: 'bogus' }).success).toBe(true);
     });
 });

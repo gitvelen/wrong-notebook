@@ -47,7 +47,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 
 // Mock knowledge-tags
-vi.mock('@/lib/knowledge-tags', () => ({
+vi.mock('@/lib/tags/knowledge-tags', () => ({
     normalizeTags: vi.fn((tags: string[]) => tags),
     normalizeTagsByGradeAndSubject: vi.fn((tags: string[]) => tags),
     calculateGradeNumber: vi.fn(() => 7),
@@ -68,6 +68,19 @@ describe('/api/analyze', () => {
     });
 
     describe('POST /api/analyze (图像分析)', () => {
+        it.each([['fixed', '四年级上', 4, '四年级上'], ['ai', '高二下', null, null]] as const)('图片识别遵循 %s 年级规则', async (gradeRecognitionMode, expectedGrade, grade, gradeContext) => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ id: 'u1', educationStage: 'junior_high', enrollmentYear: 2025, gradeRecognitionMode, fixedGradeSemester: '四年级上' });
+            mocks.mockAIService.analyzeImage.mockResolvedValue({ questionText: '题目', answerText: '答', analysis: '析', knowledgePoints: [], gradeSemester: '高二下' });
+            const response = await POST(new Request('http://localhost/api/analyze', {
+                method: 'POST', body: JSON.stringify({ imageBase64: 'dGVzdA==', language: 'en' }),
+            }));
+            expect(response.status).toBe(200);
+            expect((await response.json()).gradeSemester).toBe(expectedGrade);
+            const args = mocks.mockAIService.analyzeImage.mock.calls[0];
+            expect(args[3]).toBe(grade);
+            expect(args[5]).toBe(gradeContext);
+        });
+
         it('应该成功分析图像', async () => {
             const aiResult = {
                 questionText: '求解 x + 2 = 5',
@@ -187,7 +200,7 @@ describe('/api/analyze', () => {
             }));
 
             expect(response.status).toBe(200);
-            expect(mockGetNotebookCandidateTags).toHaveBeenCalledWith({ stage: 'senior_high', subject: 'physics' });
+            expect(mockGetNotebookCandidateTags).toHaveBeenCalledWith({ stage: 'senior_high', subject: 'physics' }, 'default');
             const args = mocks.mockAIService.analyzeImage.mock.calls[0];
             expect(args[4]).toBe('物理');
             expect(args[6]).toEqual(candidateTags);

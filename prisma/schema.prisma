@@ -21,6 +21,8 @@ model User {
 
   educationStage String? // primary, junior_high, senior_high, university
   enrollmentYear Int?
+  gradeRecognitionMode String @default("fixed") // 录入年级规则：fixed 固定，ai 按题目识别
+  fixedGradeSemester String? // 固定年级学期，未指定时沿用账户当前年级
 
   role      String   @default("user") // "admin" or "user"
   isActive  Boolean  @default(true)   // 用户是否启用
@@ -30,6 +32,8 @@ model User {
   masteryThreshold Int @default(50) // 百分比，掌握概率达到此值视为已掌握
   enableGeogebra Boolean @default(false) // 是否显示 GeoGebra 动态演示
   enableSvgAnimation Boolean @default(true) // 是否显示 SVG 动画讲解
+  themePreference String @default("system") // 界面主题：system 跟随系统、light 浅色、dark 深色
+  aiDataConsentAt DateTime? // 同意将题目等数据发送给第三方 AI 服务商的时间；为空表示尚未同意，AI 功能不可用
 
   errorItems ErrorItem[]
   subjects   Subject[]
@@ -37,6 +41,10 @@ model User {
   customTags KnowledgeTag[] // User's custom tags
   examPapers ExamPaper[]
   aiUsages   AiUsage[]
+  aiCompletions AiCompletion[]
+  paperGroups PaperGroup[]
+  importTasks ImportTask[]
+  importBatches ImportBatch[]
 }
 
 // 统一知识点标签表 (支持无限层级)
@@ -59,17 +67,21 @@ model KnowledgeTag {
   userId    String?  // 如果是用户自定义标签，绑定 userId
   user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // 标签体系：标识标签所属的数据源/体系，不同体系可并存于同一学科
+  tagSet    String   @default("default")
+
   // 与错题的多对多关系
   errorItems ErrorItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // 联合索引：确保同一用户（或系统）下同一父节点下的标签名不重复
-  @@unique([subject, name, userId, parentId])
+  // 联合索引：确保同一用户（或系统）下同一父节点、同一体系下的标签名不重复
+  @@unique([subject, name, userId, parentId, tagSet])
   // 索引：加速父子查询
   @@index([parentId])
   @@index([subject])
+  @@index([tagSet])
 }
 
 model Subject {
@@ -77,6 +89,7 @@ model Subject {
   name       String
   stage      String  @default("primary") // 学段：primary / junior_high / senior_high，仅创建时设置
   subjectKey String? // 学科：math / english / physics 等，仅创建时设置；为空时按名称推断
+  tagSet     String  @default("default") // 标签体系：default=内置体系，其他值为导入的备选体系
   userId     String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -88,6 +101,22 @@ model Subject {
   @@unique([name, userId])
   
   @@index([userId])
+}
+
+model PaperGroup {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String?  // 系统预留：'a' | 'b' | 'other'；自定义为 null
+  name      String   // 显示名：A卷/B卷/单元测试/期中/期末…
+  order     Int      @default(0)
+  isActive  Boolean  @default(true) // 停用后不出现下拉里，但历史数据仍保留
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  errorItems ErrorItem[]
+  @@unique([userId, key])
+  @@unique([userId, name])
+  @@index([userId, order])
 }
 
 model ErrorItem {
@@ -109,6 +138,8 @@ model ErrorItem {
   mistakeAnalysis  String? // Analysis of why the wrong answer happened
   mistakeStatus    String? // not_attempted, wrong_attempt, unknown
   knowledgePoints  String? // [DEPRECATED] JSON string - kept for migration only
+  // 题型，取值来自 src/lib/question/question-type.ts 的 QUESTION_TYPES
+  questionType     String?
   geogebraCommands String? // GeoGebra commands for interactive demo (JSON or newline-separated)
   svgAnimation     String? // AI 生成的 SVG 动画讲解（已净化），中文版
   svgAnimationEn   String? // 英文版 SVG 动画讲解（已净化），界面为英文时使用
@@ -123,10 +154,14 @@ model ErrorItem {
   
   masteryLevel     Int     @default(0) // 0: New, 1: Reviewing, 2: Mastered
   gradeSemester    String? // e.g. "Junior High Grade 2, 1st Semester"
-  paperLevel       String? // e.g. "A", "B", "Other"
+  paperLevel       String? // 现在存 PaperGroup.id
+  paperGroup       PaperGroup? @relation(fields: [paperLevel], references: [id], onDelete: SetNull)
   difficultyStars  Int?    // 难度星级 1~5（参考高思导引星级），未评定时为空
   hasFigure        Boolean @default(false) // 识别时判断题目是否有配图
   figureSvg        String? // AI 用 SVG 重绘的题目配图（已净化），显示和打印时使用
+  figureScale      Int     @default(100) // 配图显示与打印比例，10~200%
+  figureAlign      String  @default("center") // 配图显示与打印位置：left | center | right
+  answerSpacePx    Int?    // 打印时手动设置的题下留白高度（0~600 px），为空时按全局留白档位
   lastPractice     String? // 最近一次生成的举一反三题目与解答（JSON），再次进入练习页时直接显示
 
   // 根据举一反三历史推测的掌握情况
@@ -141,6 +176,7 @@ model ErrorItem {
   reviewSchedules ReviewSchedule[]
   practiceRecords PracticeRecord[]
   examQuestions   ExamQuestion[]
+  importTasks     ImportTask[]
   
   // 列表、统计都按用户取错题并按时间排序；SQLite 不会自动给外键建索引
   @@index([userId, createdAt])
@@ -202,7 +238,10 @@ model ExamPaper {
   status     String   @default("generating") // generating | ready | partial | failed
   scope      String   // unmastered | mastered | all
   difficulty String   // easy | medium | hard | harder
+  mode       String   @default("generate") // generate 举一反三新题 | original 原题直出
   requestedCount Int
+  // 是否按题型分大题显示与打印，默认关闭（兼容旧试卷）
+  groupByType Boolean @default(false)
   subjectIds String   // JSON 数组
   tagNames   String?  // JSON 数组
   resultsRecordedAt DateTime?
@@ -228,6 +267,12 @@ model ExamQuestion {
   answerText    String?
   analysis      String?
   figureSvg     String?    // 新题的 SVG 配图
+  figureScale   Int        @default(100) // 配图显示与打印比例，10~200%
+  figureAlign   String     @default("center") // 配图显示与打印位置：left | center | right
+  answerSpacePx Int?       // 打印时手动设置的题下留白高度（0~600 px），为空时按全局留白档位
+  score         Float?     // 每题分值（最多一位小数，0~1000），空表示未设分值
+  // 创建时从来源错题快照的题型；旧数据为 null，分组时回退读取关联错题当前题型
+  questionType  String?
   error         String?
   practiceRecordId String? // [DEPRECATED] 旧版一对一关联，部署校验要求保留已有列，改用 PracticeRecord.examQuestionId
   practiceRecords PracticeRecord[]
@@ -244,4 +289,150 @@ model AiUsage {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+// 每次 AI 补全的 token 用量（含后台自动的掌握概率评估）；一次用户操作可能对应多次补全
+model AiCompletion {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind         String   // 触发补全的操作，同 AiUsage.kind，另有 mastery
+  task         String   // 补全任务，如 analyze、grading、tag-suggest
+  provider     String   // 配置的 AI 渠道，如 openai、anthropic、deepseek
+  model        String?
+  inputTokens  Int?
+  outputTokens Int?
+  requestId    String?  // 服务商或网关返回的请求 ID
+  durationMs   Int
+  status       String   // succeeded | failed
+  errorCode    String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// 用户在外部服务的账号，供扩展（如 AI 账户实现）保存对应关系与凭据；secret 由扩展自行加密。
+// 不与 User 建外键：用户删除后扩展仍需读取该记录清理外部账号，清理完成后由扩展删除。不进入备份。
+model ExternalAccount {
+  id         String   @id @default(cuid())
+  userId     String
+  provider   String   // 外部服务标识，由扩展定义
+  externalId String?  // 外部服务中的账号 ID
+  status     String   @default("pending") // 由扩展定义，如 pending、active、closed
+  secret     String?  // 扩展加密后的凭据
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, provider])
+  @@index([provider, status])
+}
+
+// 拍照识别导入任务：上传后由服务端识别并保存结果，离开页面、锁屏或服务重启后仍可取回，不重复调用 AI
+model ImportTask {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientRequestId String?   // 前端生成的幂等键：同一用户重复提交时返回同一任务
+  mode            String    // review 待人工校对 | auto 识别后直接入库（创建时按「导入前人工确认」决定）
+  status          String    @default("analyzing") // analyzing 识别中 | review 待校对 | saving 保存中 | saved 已保存 | failed 失败
+  language        String    @default("zh")
+  subjectId       String?   // 识别时参考的错题本（决定候选知识点）
+  targetSubjectId String?   // 固定放入的错题本；为空时按识别学科匹配或在校对页选择
+  paperLevel      String?   // 指定的卷别分组
+  imageData       String    // 压缩后的题目图片（data URL），入库后清空，原图保存在错题中
+  imageInfo       String?   // 图片格式、像素与体积（JSON），不含图片内容
+  result          String?   // 识别结果（JSON），即待校对草稿；入库失败可直接重试保存
+  errorItemId     String?
+  errorItem       ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
+  batchId         String?   // 所属多题批次；为空表示单独上传的任务
+  batch           ImportBatch? @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchItemKey    String?   // 批次草稿中对应题目的标识
+  inputText       String?   // 文字任务的题目原文（含公共材料）；图片任务为空
+  duplicate       Boolean   @default(false) // 入库时判为重复题，已记入原题的做错记录
+  error           String?   // 失败原因的错误码
+  timings         String?   // 各阶段耗时（JSON，毫秒）
+  attempts        Int       @default(1)
+  runnerId        String?   // 执行识别或保存的服务进程，用于判断服务重启导致的中断
+  heartbeatAt     DateTime? // 执行中定时刷新，多实例部署时据此判断中断
+  readAt          DateTime? // 用户查看结果的时间，为空时显示未读提示
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, status])
+  @@index([errorItemId])
+  @@index([batchId])
+}
+
+/// 多题录入批次：一段多题文字或一张多题照片。分题结果作为草稿保存，用户确认后为每道题建一个识别任务。
+model ImportBatch {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientRequestId String?   // 前端生成的幂等键
+  source          String    // text 文字 | image 照片
+  splitter        String    // local 本地规则 | ai 模型分题
+  status          String    @default("draft") // splitting 分题中 | draft 待确认 | started 已开始 | failed 分题失败
+  mode            String?   // 开始时按「导入前人工确认」决定：review 逐题校对 | auto 直接入库
+  language        String    @default("zh")
+  subjectId       String?
+  targetSubjectId String?
+  paperLevel      String?
+  sourceText      String?   // 原始文字
+  imageData       String    @default("") // 整页图片（data URL）
+  imageInfo       String?
+  draft           String?   // 分题草稿（JSON）
+  version         Int       @default(1) // 草稿版本，保存时校验，避免多处编辑互相覆盖
+  error           String?
+  attempts        Int       @default(1)
+  runnerId        String?
+  heartbeatAt     DateTime?
+  readAt          DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  tasks           ImportTask[]
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, status])
+}
+
+/// 匿名遥测事件：同时作为本地记录与外发待发队列（见 doc/TELEMETRY_DESIGN.md §2.2）。
+/// 不含用户或实例标识；local=false 的记录只为外发而存，发出后删除
+model TelemetryEvent {
+  id          String    @id @default(cuid())
+  name        String    // 事件名（telemetry/schema.ts 白名单）
+  payload     String?   // JSON，只有布尔与枚举值
+  version     String
+  createdAt   DateTime  @default(now())
+  forwardedAt DateTime? // 外发成功的时间；null 表示待发
+  local       Boolean   // 写入时本地记录是否开启
+
+  @@index([createdAt])
+  @@index([forwardedAt, createdAt])
+  @@index([name, createdAt])
+}
+
+/// 匿名错误回报：message、stack、path、userAgent 只在本地记录开启时保存，永不外发
+model TelemetryError {
+  id          String    @id @default(cuid())
+  kind        String    // client | boundary | server
+  scope       String
+  name        String
+  fingerprint String    // 16 位十六进制
+  message     String?
+  stack       String?
+  path        String?
+  userAgent   String?
+  version     String
+  createdAt   DateTime  @default(now())
+  forwardedAt DateTime?
+  local       Boolean
+
+  @@index([createdAt])
+  @@index([forwardedAt, createdAt])
+  @@index([fingerprint, createdAt])
 }

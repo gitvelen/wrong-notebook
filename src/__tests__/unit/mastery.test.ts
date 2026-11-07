@@ -24,6 +24,7 @@ vi.mock('@/lib/logger', () => ({
     createLogger: vi.fn(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
 }));
 
+import { getAIService } from '@/lib/ai';
 import { DEFAULT_MASTERY_THRESHOLD, computeRuleMastery, countByMasteryStatus, evaluateErrorItemMastery, isPracticeResult, masteryLevelFor } from '@/lib/mastery';
 
 const record = (result: string, difficulty = 'medium', day = 1) => ({
@@ -106,9 +107,10 @@ describe('evaluateErrorItemMastery', () => {
     it('AI 评估成功时保存 AI 概率并按阈值自动标记', async () => {
         mocks.findUnique.mockResolvedValue({
             id: 'item-1',
+            userId: 'user-1',
             questionText: '题目',
             mistakeStatus: 'wrong_attempt',
-            user: { masteryThreshold: 50 },
+            user: { masteryThreshold: 50, aiDataConsentAt: new Date() },
             tags: [{ name: '方程' }],
             practiceRecords: [record('correct', 'hard', 1), record('correct', 'hard', 2)],
         });
@@ -116,6 +118,8 @@ describe('evaluateErrorItemMastery', () => {
 
         await evaluateErrorItemMastery('item-1');
 
+        // 后台评估的用量记在错题所属用户名下，单独归为 mastery
+        expect(getAIService).toHaveBeenCalledWith({ userId: 'user-1', kind: 'mastery' });
         const input = mocks.evaluateMastery.mock.calls[0][0];
         expect(input.knowledgePoints).toEqual(['方程']);
         expect(input.history).toHaveLength(2);
@@ -130,7 +134,7 @@ describe('evaluateErrorItemMastery', () => {
             id: 'item-1',
             questionText: '题目',
             mistakeStatus: null,
-            user: { masteryThreshold: 90 },
+            user: { masteryThreshold: 90, aiDataConsentAt: new Date() },
             tags: [],
             practiceRecords: [record('correct', 'hard', 1)],
         });
@@ -139,6 +143,22 @@ describe('evaluateErrorItemMastery', () => {
         await evaluateErrorItemMastery('item-1');
 
         expect(mocks.update.mock.calls[0][0].data.masteryLevel).toBe(1);
+    });
+
+    it('用户未同意 AI 数据授权时不调用 AI，按规则估算', async () => {
+        mocks.findUnique.mockResolvedValue({
+            id: 'item-1',
+            questionText: '题目',
+            mistakeStatus: null,
+            user: { masteryThreshold: 50, aiDataConsentAt: null },
+            tags: [],
+            practiceRecords: [record('correct', 'hard', 1)],
+        });
+
+        await evaluateErrorItemMastery('item-1');
+
+        expect(mocks.evaluateMastery).not.toHaveBeenCalled();
+        expect(mocks.update.mock.calls[0][0].data.masterySource).toBe('rule');
     });
 
     it('AI 失败时使用规则公式兜底', async () => {

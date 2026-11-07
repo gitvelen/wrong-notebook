@@ -19,8 +19,9 @@ wrong-notebook 是一个错题本 Web 应用：上传题目图片或文字，由
 | --- | --- |
 | `src/app/` | 页面与路由；`src/app/api/` 为 API 路由 |
 | `src/components/` | React 组件；`ui/` 为基础组件 |
-| `src/lib/` | 业务逻辑与工具：`ai/`、`auth.ts`、`prisma.ts`、`logger.ts`、`api-errors.ts`、`translations.ts` 等 |
-| `src/lib/tag-data/` | 各学科知识点标签数据 |
+| `src/lib/` | 业务逻辑与工具：`ai/`、`auth.ts`、`prisma.ts`、`logger.ts`、`api-errors.ts`、`translations.ts`（入口）等 |
+| `src/lib/i18n/` | 界面文案按语言拆分：`en.ts`、`zh.ts`，由 `src/lib/translations.ts` 汇总导出 |
+| `src/lib/tags/data/` | 各学科知识点标签数据 |
 | `src/__tests__/unit`、`src/__tests__/integration` | Vitest 测试 |
 | `e2e/` | Playwright 测试 |
 | `prisma/` | `schema.prisma`、迁移、种子数据 |
@@ -53,13 +54,17 @@ bash scripts/ci.sh          # 完整 CI（要求 Node.js 22 及以上，含生�
 
 - TypeScript：避免 `any`，用 `unknown` 或具体类型；类型导入使用 `import type`。捕获的错误用 `@/lib/error-message` 的 `getErrorMessage` / `getApiErrorMessage` 取文本。
 - Lint 必须零警告。确需忽略规则时，只在调用处用 `eslint-disable-next-line` 并写明原因（如 effect 中的数据请求），不要整文件关闭。
-- React：组件需有 Props 类型；超过约 200 行的组件应拆分，子组件放在以页面或功能命名的目录（如 `src/components/settings/`、`error-detail/`），可复用逻辑抽成 `src/lib/use-*.ts` hook。
+- React：组件需有 Props 类型；超过约 200 行的组件应拆分，子组件放在以页面或功能命名的目录（如 `src/components/settings/`、`error-detail/`），可复用逻辑抽成 `src/lib/hooks/use-*.ts` hook。
 - 导入顺序：React/Next → 第三方 → `@/components` → `@/lib` → types → styles。
 - 路径别名 `@/` 指向 `src/`。
 - API 错误使用 `@/lib/api-errors`；日志后端用 `@/lib/logger`，前端用 `@/lib/frontend-logger`，不要直接 `console.log`。
-- 界面文本放在 `@/lib/translations.ts`，组件中用 `t.section.key`，缺省回退英文。中英文 key 必须一致（`translations.test.ts` 会检查）。
+- 只能在服务端运行的 `src/lib` 模块在首行加 `import "server-only"`（如 `prisma.ts`、`logger.ts`、`auth.ts`、`api-handler.ts`、`config/store.ts`、`ai/index.ts`、`ai/base-provider.ts` 及直接导入 Node 内置模块、`next-auth`、`@prisma/client` 运行时的模块），防止被客户端组件误引。
+- 新路由使用 `@/lib/api-handler` 的 `withUser`/`withAdmin` 处理鉴权（自动完成会话校验、用户查询与异常捕获），与 `withRecoverableResponse` 组合时后者放外层。
+- 界面文本放在 `@/lib/translations.ts`（入口，实际文案按语言拆分在 `src/lib/i18n/en.ts` / `src/lib/i18n/zh.ts`），组件中用 `t.section.key`，缺省回退英文。中英文 key 必须一致（`translations.test.ts` 会检查）。
 - 页面须同时适配 PC 和移动端（移动优先）。
-- 修改 AI 调用时同步更新所有提供商（`gemini-provider.ts`、`openai-provider.ts`、`azure-provider.ts`、`anthropic-provider.ts`），提示词集中在 `prompts.ts`。
+- AI 业务方法统一实现在 `src/lib/ai/base-provider.ts` 的 `BaseAIProvider`：新增或修改 AI 功能只改基类（及 `prompts/`、解析函数），各提供商（`openai-provider.ts`、`azure-provider.ts`、`gemini-provider.ts`、`anthropic-provider.ts`）只负责 `complete` 传输与按任务的请求差异；回答解析在 `response-parser.ts`，错误归类在 `error-classification.ts`。提示词集中在 `prompts/` 目录。
+- 取 AI 服务一律用 `getAIService({ userId, kind })`（`kind` 与 `consumeAiQuota` 的操作一致，后台掌握概率评估为 `mastery`），用量据此记入该用户名下。额度判断、按用户的 AI 配置与用量记录经 `src/lib/ai/account.ts` 的 AI 账户接口完成，不要在路由中直接写额度逻辑；替换方式见 `doc/FORK_EXTENSION_POINTS.md`。
+- AI 调用不要写死 `max_tokens`：OpenAI、Azure、Anthropic 一律经 `withModelOutputLimit`（`src/lib/ai/truncation.ts`）按模型最大输出请求（已知模型查 `model-output-limits.ts`，未知模型默认 256K，超限时自动降级）；新增模型的官方输出上限补到 `model-output-limits.ts`。推理模型的思考也计入输出，小上限会导致正文为空。
 - MiniMax、智谱 GLM、DeepSeek、Kimi、千问 Qwen、阶跃星辰 StepFun、火山引擎豆包等国产大模型官方渠道复用 `OpenAIProvider`，默认地址和模型集中在 `src/lib/ai/vendor-presets.ts`；新增渠道只需加预设并同步文档与测试。
 
 ## 安全
@@ -76,9 +81,26 @@ bash scripts/ci.sh          # 完整 CI（要求 Node.js 22 及以上，含生�
 ## 测试
 
 - 修改逻辑代码后运行 `npm run test:unit && npm run test:integration`；仅改文档、样式、注释时可跳过。
-- 修改导出、导入或新增需要备份的字段和表时，同步更新 `src/app/api/export`、`src/app/api/import` 与 `src/__tests__/integration/data-backup.test.ts`。
 - 测试失败先修复再重跑；不要为通过测试而删除或弱化断言。
 - 除非用户要求或运行完整 CI，不主动执行 `npm run build`。
+
+## 导入导出同步
+
+任何新增或修改以下项目时，必须同步检查并更新导入导出：
+- Prisma 模型新增字段或表
+- 错题本、标签、试卷等核心数据的结构变化
+- 新增需要备份的用户数据（偏好设置、自定义标签等）
+
+**必须同步修改的文件：**
+- `src/lib/backup/format.ts` — 备份格式的单一来源：`BACKUP_VERSION` 常量、备份文件的 TypeScript 类型与 `parseBackupFile` 顶层校验
+- `src/app/api/export/route.ts` — 导出接口，确保新字段被正确序列化
+- `src/app/api/import/route.ts` — 导入接口，确保新字段被正确解析和写入，并处理旧版导出文件的兼容性
+- `src/__tests__/integration/data-backup.test.ts` — 数据备份测试，验证导出后导入能完整还原
+
+**导入导出格式约定：**
+- 导出文件 `version` 字段定义在 `src/lib/backup/format.ts` 的 `BACKUP_VERSION` 常量：新增字段时版本号 +1（当前 version 11）
+- 旧版导出文件没有的新字段，导入时必须有默认值或跳过逻辑
+- 多标签体系数据（`tagSet`）需按体系分组导出和导入，避免混淆
 
 ## Git 与提交
 
@@ -86,7 +108,9 @@ bash scripts/ci.sh          # 完整 CI（要求 Node.js 22 及以上，含生�
 - 分支边界、检查和公开发布流程见 `doc/BRANCH_WORKFLOW.md`。
 
 - 向 GitHub 推送前展示 `git status` 与拟推送的 `git diff`，经用户确认后再执行 `git push`（包括分支、标签和历史重写）。本地 `git add` / `git commit` 及推送 Gitea 无需单独确认。
+- 用户在需求中已明确要求提交、推送或发布时，视为已确认，直接执行，不再二次确认；正式版标签仍需用户明确要求创建。
 - 发布版本默认打预览版标签 `v年.月.日-n`（如 `v2026.10.22-1`，`n` 为当天序号，月日不补零），推送前确认对应提交的 GitHub CI（含 E2E）已通过；正式版标签 `v年.月.日` 必须由用户确认后才能创建和推送。详见 `doc/release-guide.md`。
+- Windows 安装包签名使用 SignPath（配置见 `doc/WINDOWS_SIGNING.md`）。调试只用测试证书：手动运行 Packages 并选 `windows_signing=test`，签名包不进入 Release。生产签名由 `SIGNPATH_ENABLED` 开启，每次需维护者在 SignPath 人工批准，不得改为自动批准或在签名失败时回退为未签名附件。GitHub Secret 只存 CI 用户（Submitter）的 Token，不存管理员 Token。
 - 提交信息格式：`<type>: <中文描述>`，type 取 feat / fix / docs / style / refactor / test / chore / ci。
 - 提交信息中不添加 AI 署名。
 - 按功能拆分提交：一次任务包含多个相互独立的需求时，每个需求单独提交；同一需求涉及多个可独立交付的部分（如接入多个提供商）时也逐个提交。每个提交都应能独立通过测试，并包含该功能对应的测试与文档改动；无关的格式化、重构不要混入功能提交。
@@ -95,6 +119,7 @@ bash scripts/ci.sh          # 完整 CI（要求 Node.js 22 及以上，含生�
 ## 文档同步
 
 - 功能、配置项或默认值变化时，同步更新 `README.md` 与 `README.en.md`，以及受影响的 `doc/`、`doc/wiki/` 页面；Wiki 中文页面改动时同步更新 `doc/wiki/en/` 中对应的英文页面，发布流程见 `doc/WIKI_PUBLISHING.md`。
+- `doc/PRIVACY.md` / `doc/PRIVACY.en.md` 改动时，同步官网的隐私政策页（`privacy/index.html`、`en/privacy/index.html`），应用内链接指向官网版本。
 - 面向用户的功能变化（如新增 AI 提供商、安装方式）同时更新官网项目 `../wrong-notebook-github-pages`（中文 `index.html` 与英文 `en/index.html`），该项目单独提交并推送。
 
 ## 临时文件

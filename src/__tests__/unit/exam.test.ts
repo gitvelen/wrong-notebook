@@ -6,8 +6,8 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/ai', () => ({ getAIService: vi.fn() }));
 
-import { buildSourceWhere, pickLeastPracticed, sampleItems, summarizePaperStatus } from '@/lib/exam';
-import { buildExamHtmlDocument, examFileName, KATEX_CSS_URL } from '@/lib/exam-print';
+import { buildSourceWhere, pickLeastPracticed, sampleItems, snapshotOriginalQuestion, summarizePaperStatus, EXAM_MODES } from '@/lib/exam/exam';
+import { buildExamHtmlDocument, examFileName, KATEX_CSS_URL } from '@/lib/exam/exam-print';
 import { regionFromPoints } from '@/lib/image-crop';
 
 describe('buildSourceWhere', () => {
@@ -16,6 +16,11 @@ describe('buildSourceWhere', () => {
     it('未掌握范围选待复习和复习中的题', () => {
         const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'unmastered', count: 5 });
         expect(where).toMatchObject({ userId: 'u1', subjectId: { in: ['s1'] }, NOT: MASTERED, shortId: { not: null } });
+    });
+
+    it('原题直出要求题干非空，其他模式不加该条件', () => {
+        expect(buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, requireQuestionText: true }).questionText).toEqual({ not: null });
+        expect(buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5 }).questionText).toBeUndefined();
     });
 
     it('已掌握范围选已掌握的题，并可按知识点过滤', () => {
@@ -34,6 +39,44 @@ describe('buildSourceWhere', () => {
         expect(where).not.toHaveProperty('NOT');
         expect(where).not.toHaveProperty('AND');
         expect(where).not.toHaveProperty('tags');
+    });
+
+    it('按题型多选过滤：只选具体题型时按 in 过滤', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: ['single_choice', 'solution'] });
+        expect(where.AND).toEqual([{ OR: [{ questionType: { in: ['single_choice', 'solution'] } }] }]);
+    });
+
+    it('按题型多选过滤：只选 none 时筛未设置题型的题', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: ['none'] });
+        expect(where.AND).toEqual([{ OR: [{ questionType: null }] }]);
+    });
+
+    it('按题型多选过滤：题型与 none 混合时 OR 合并', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: ['fill_blank', 'none'] });
+        expect(where.AND).toEqual([{ OR: [{ questionType: { in: ['fill_blank'] } }, { questionType: null }] }]);
+    });
+
+    it('题型筛选与掌握范围条件共存', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'mastered', count: 5, questionTypes: ['solution'] });
+        expect(where.AND).toEqual([
+            MASTERED,
+            { OR: [{ questionType: { in: ['solution'] } }] },
+        ]);
+    });
+
+    it('questionTypes 未设置或为空数组时不加筛选条件', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: [] });
+        expect(where).not.toHaveProperty('AND');
+    });
+
+    it('未知题型 key 被忽略', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: ['unknown_type'] });
+        expect(where).not.toHaveProperty('AND');
+    });
+
+    it('未知题型 key 与已知题型混合时仅保留已知值', () => {
+        const where = buildSourceWhere('u1', { subjectIds: ['s1'], scope: 'all', count: 5, questionTypes: ['unknown_type', 'solution'] });
+        expect(where.AND).toEqual([{ OR: [{ questionType: { in: ['solution'] } }] }]);
     });
 });
 
@@ -67,6 +110,30 @@ describe('pickLeastPracticed', () => {
         expect(first).toEqual(new Set(['b', 'd']));
     });
 
+    it('练习次数相同时优先选择未出现在已有试卷中的题目', () => {
+        const candidates = [
+            { id: 'in-exam-0', practiceCount: 0, inExam: true },
+            { id: 'fresh-0', practiceCount: 0, inExam: false },
+            { id: 'in-exam-1', practiceCount: 1, examCount: 2 },
+            { id: 'fresh-1', practiceCount: 1, examCount: 0 },
+        ];
+        const picked = pickLeastPracticed(candidates, 4);
+        expect(picked.map((item) => item.id)).toEqual(['fresh-0', 'in-exam-0', 'fresh-1', 'in-exam-1']);
+    });
+
+    it('同练习次数且都未进过试卷（或都进过试卷）时保持随机', () => {
+        const candidates = [
+            { id: 'used-a', practiceCount: 1, inExam: true },
+            { id: 'used-b', practiceCount: 1, inExam: true },
+            { id: 'fresh-a', practiceCount: 1, inExam: false },
+            { id: 'fresh-b', practiceCount: 1, inExam: false },
+        ];
+        const firstChoice = new Set(Array.from({ length: 50 }, () => pickLeastPracticed(candidates, 1)[0].id));
+        expect(firstChoice).toEqual(new Set(['fresh-a', 'fresh-b']));
+        const thirdChoice = new Set(Array.from({ length: 50 }, () => pickLeastPracticed(candidates, 3)[2].id));
+        expect(thirdChoice).toEqual(new Set(['used-a', 'used-b']));
+    });
+
     it('不足题量时返回全部', () => {
         expect(pickLeastPracticed(items, 10)).toHaveLength(4);
     });
@@ -81,6 +148,38 @@ describe('summarizePaperStatus', () => {
         expect(summarizePaperStatus(['ready', 'ready'])).toBe('ready');
         expect(summarizePaperStatus(['ready', 'failed'])).toBe('partial');
         expect(summarizePaperStatus(['failed', 'failed'])).toBe('failed');
+    });
+});
+
+describe('EXAM_MODES', () => {
+    it('包含 generate 和 original', () => {
+        expect(EXAM_MODES).toEqual(['generate', 'original']);
+    });
+});
+
+describe('snapshotOriginalQuestion', () => {
+    it('复制原题全部快照字段并置为 ready', () => {
+        const item = {
+            questionText: '求解 x + 2 = 5',
+            answerText: 'x = 3',
+            analysis: '移项',
+            figureSvg: '<svg/>',
+            figureScale: 65,
+            figureAlign: 'left',
+            answerSpacePx: 240,
+            questionType: 'solution',
+        };
+        expect(snapshotOriginalQuestion(item)).toEqual({
+            questionText: '求解 x + 2 = 5',
+            answerText: 'x = 3',
+            analysis: '移项',
+            figureSvg: '<svg/>',
+            figureScale: 65,
+            figureAlign: 'left',
+            answerSpacePx: 240,
+            questionType: 'solution',
+            status: 'ready',
+        });
     });
 });
 

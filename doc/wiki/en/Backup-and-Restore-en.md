@@ -6,20 +6,50 @@ Web export is for moving personal learning data; restoring a whole site requires
 
 | Method | Contents | Use |
 | --- | --- | --- |
-| Web JSON export | Notebooks, custom tags, questions, review schedules, practice records, random exam papers and some profile data | Keeping personal data, importing supported fields |
+| Web JSON export (full backup) | Notebooks, system and custom tags, questions, review schedules, practice records, random exam papers, unprocessed recognition tasks and some profile data | Keeping personal data, importing supported fields |
+| Question Exchange JSON (Export JSON) | Selected error item question content (question text, answer, analysis, knowledge points, difficulty, figures, optional original images) | Exchanging question content, cross-system import |
 | Full-site file backup | The complete SQLite database, `config/`, deployment configuration and any certificates | Disaster recovery, moving the site, preparing a rollback before upgrades |
 
-The JSON export does not include full user accounts with passwords or the server AI configuration. Even when an admin exports all data, it does not replace a full-site backup.
+The JSON export does not include full user accounts with passwords, AI data sharing consent or the server AI configuration. Even when an admin exports all data, it does not replace a full-site backup.
 
 ## Web export and import
 
 Export JSON from the data management section in the settings and keep it safe. When a regular user imports, the email in the export file must match the current account; admins can import and export data for all users.
 
-Question figures, GeoGebra demos, Chinese and English SVG animations with their synthesized cloud voice (MP3), the latest similar question and mastery probability are all restored from the export file; SVG is sanitized again on import, and questions without a mastery probability are re-evaluated after import. Exam papers are restored together with their questions and every recorded result; questions still being generated at export time show as failed after import and can be regenerated on the exam page. Importing your own export file also restores preferences such as review before import, the duplicate threshold, GeoGebra demos and SVG animations.
+### Export JSON (Question Exchange Format)
+
+The error list's multi-select bar provides an "Export JSON" feature that exports selected error items as a [Question Exchange JSON v1](../QUESTION_FORMAT.en.md) file. Unlike a full backup, the exchange format contains only question content (question text, answer, analysis, knowledge points, difficulty, figures, etc.) and does not include practice records, review schedules, exam papers, user preferences, or other data.
+
+- Only error items belonging to the current user are exported; ids not owned by the user are silently ignored.
+- Optional "Include original images": when enabled, if the original image is a base64 inline image (PNG/JPEG/WebP), it is placed into the `images` field.
+- Questions with empty question text are skipped and counted in `warnings` as `EMPTY_QUESTION_TEXT_SKIPPED`.
+- The export result can be parsed directly by `parseQuestionFile`, achieving a round-trip.
+
+### Full backup export
+
+System and custom tags retain their tag system and parent-child hierarchy. Identically named chapters and knowledge points under different grades are restored separately, and questions reconnect to the specific nodes recorded in the backup. This includes Chinese grades, chapters, knowledge points and custom tags beneath them. Import supports older backups whose child nodes appear before their parents; repeating an import does not duplicate tags at the same path.
+
+Question figures, GeoGebra demos, Chinese and English SVG animations with their synthesized cloud voice (MP3), the latest similar question and mastery probability are all restored from the export file; SVG is sanitized again on import, and questions without a mastery probability are re-evaluated after import. Exam papers are restored together with their questions and every recorded result; questions still being generated at export time show as failed after import and can be regenerated on the exam page. Importing your own export file also restores preferences such as the question grade rule and fixed grade, review before import, the duplicate threshold, GeoGebra demos, SVG animations and the interface theme.
+
+Export files use version 11, which includes unprocessed recognition tasks (drafts awaiting review and failed tasks, with the question image or question text and the recognition result) and unfinished multi-question batches (split drafts with your adjustments, batches whose split failed, and started batches with questions not yet imported); saved tasks and fully imported batches are not exported. On import, review drafts and split drafts stay as they were; all other tasks, including those still recognizing or saving at export time, show as failed, and batches that were still splitting show as split failed, so you can retry them when needed. Importing never calls the AI. Tasks of a batch stay in their batch after import, and importing the same file again creates nothing new. Older backups without these fields import as before.
+
+Version 7 adds an `extensions` namespace for fork projects to store private extension data (such as question-bank metadata). `extensions` is organized as `<key>: { version, data }`; each extension manages its own version. The upstream exports an empty object `{}` by default; on import, unregistered keys are safely skipped with a warning, and extensions newer than the running program are skipped as well. Fork projects can register extensions in the `BACKUP_EXTENSIONS` array in `src/lib/backup-extensions.ts`.
+
+Version 8 adds a `mode` field to `examPapers` (`generate` for similar questions / `original` for original questions). Older files without this field import as `generate`.
+
+Version 9 adds a `questionType` field to `errorItems` (question type such as single choice, fill in the blank, calculation, etc.). Older files without this field import as null.
+
+Version 10 adds a `score` field to `examPapers.questions` (per-question score, up to one decimal place). Older files without this field import as no score set.
+
+Version 11 adds a `groupByType` field to `examPapers` (whether questions are grouped into sections by question type) and a `questionType` field to `examPapers.questions` (the source question type snapshotted when the exam question was created). Older files without these fields import as false / null.
 
 Import merges existing notebooks and tags and handles duplicates by question similarity. A duplicate may add another wrong attempt under the existing question, so importing the same file repeatedly can change the practice history.
 
 Keep the original backup before importing, and afterwards check the new questions, tags, duplicate count and answer history. To restore to an exact point in time, use a file backup.
+
+Restoring a backup keeps each question's original grade and does not apply the current entry rule. Old backups without a grade rule leave your current account settings unchanged.
+
+Each mistake's and each exam question's figure display scale and alignment (left / center / right) are exported and restored for page display and printouts. Older backups with no scale or alignment, or an invalid value, use the default 100% and center.
 
 ## Docker full-site backup
 

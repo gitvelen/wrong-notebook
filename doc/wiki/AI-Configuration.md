@@ -107,11 +107,17 @@ MiniMax Code OAuth 用 MiniMax Code 账号登录后调用模型，不需要 API 
 | 输出 SVG 代码 | 静态配图与 SVG 动画讲解 |
 | 足够长的输出 | 包含配图的识别结果及分步骤动画 |
 
-SVG 配图与动画由语言模型输出代码生成，不调用图片生成接口。动画常需要较长输出，输出截断时应用会尝试提高输出上限重试；模型本身也必须支持相应长度。
+SVG 配图与动画由语言模型输出代码生成，不调用图片生成接口。动画常需要较长输出，应用每次调用都直接按模型允许的最大输出请求（已知模型用官方上限，未知模型用 262144（256K），接口报超限时自动读出模型上限再试并记住）；模型本身也必须支持相应长度。按 `max_tokens` 预扣额度的中转网关（如 NewAPI）需要账户余额足以覆盖预扣。
 
 ## 提示词与生成规则
 
 管理员可在“提示词”页自定义识别和举一反三模板。应用对生成题目还有统一约束：举一反三和试卷新题使用填空题或解答题，题目内容不含题号、分值和选择题选项。
+
+计算题核对等价答案，证明和说明理由题检查必要论证；不要求过程且结论能直接比对时才本地判对，其他情况交给 AI 判定。
+
+GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重新生成时附带实际执行错误反馈。
+
+应用统一保留输出协议、字段语言、年级范围及候选知识点约束，旧自定义模板遗漏变量时也会补齐。识别保留原题和学生作答原文，解析与错因分析跟随界面语言，学科、年级和知识点存储值不翻译；AI 返回的知识点会按候选清单过滤并去重，手工添加的标签不受影响。掌握度评估携带本次评估时间和练习间隔。
 
 知识点识别依据错题本的学段与学科，从对应知识点库选择标签。新接入服务时，建议分别验证文字录入、图片识别、举一反三和动画讲解。
 
@@ -121,4 +127,4 @@ SVG 配图与动画由语言模型输出代码生成，不调用图片生成接�
 
 API Key 保存在服务端配置中。备份 `config/` 时应妥善保存，反馈问题时只提供经过脱敏的配置、日志和错误信息。
 
-实现入口：[配置读取](https://github.com/margrop/wrong-notebook/blob/main/src/lib/config.ts) · [提供商选择](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/index.ts) · [提示词](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/prompts.ts)。
+实现入口：[配置读取](https://github.com/margrop/wrong-notebook/tree/main/src/lib/config) · [提供商选择](https://github.com/margrop/wrong-notebook/blob/main/src/lib/ai/index.ts) · [提示词](https://github.com/margrop/wrong-notebook/tree/main/src/lib/ai/prompts)。

@@ -3,6 +3,12 @@
  * 确保所有 API 错误响应格式一致
  */
 import { NextResponse } from "next/server";
+import { ErrorCode } from "@/lib/error-codes";
+import type { ErrorCodeType } from "@/lib/error-codes";
+import type { BackgroundTask } from "@/lib/background-tasks";
+
+export { ErrorCode } from "@/lib/error-codes";
+export type { ErrorCodeType } from "@/lib/error-codes";
 
 /**
  * 标准化的错误响应结构
@@ -13,46 +19,6 @@ export interface ApiErrorResponse {
     details?: unknown;
 }
 
-/**
- * 错误代码枚举
- */
-export const ErrorCode = {
-    // 认证相关 (401)
-    UNAUTHORIZED: 'UNAUTHORIZED',
-    SESSION_EXPIRED: 'SESSION_EXPIRED',
-
-    // 权限相关 (403)
-    FORBIDDEN: 'FORBIDDEN',
-    NOT_OWNER: 'NOT_OWNER',
-    ADMIN_REQUIRED: 'ADMIN_REQUIRED',
-
-    // 资源相关 (404)
-    NOT_FOUND: 'NOT_FOUND',
-    USER_NOT_FOUND: 'USER_NOT_FOUND',
-    ITEM_NOT_FOUND: 'ITEM_NOT_FOUND',
-
-    // 请求相关 (400)
-    BAD_REQUEST: 'BAD_REQUEST',
-    INVALID_INPUT: 'INVALID_INPUT',
-    MISSING_REQUIRED_FIELD: 'MISSING_REQUIRED_FIELD',
-    VALIDATION_ERROR: 'VALIDATION_ERROR',
-    OPERATION_NOT_ALLOWED: 'OPERATION_NOT_ALLOWED',
-
-    // 请求过多 (429)
-    AI_DAILY_LIMIT_EXCEEDED: 'AI_DAILY_LIMIT_EXCEEDED',
-    TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
-
-    // 冲突 (409)
-    CONFLICT: 'CONFLICT',
-    ALREADY_EXISTS: 'ALREADY_EXISTS',
-
-    // 服务器错误 (500)
-    INTERNAL_ERROR: 'INTERNAL_ERROR',
-    DATABASE_ERROR: 'DATABASE_ERROR',
-    AI_ERROR: 'AI_ERROR',
-} as const;
-
-export type ErrorCodeType = typeof ErrorCode[keyof typeof ErrorCode];
 
 /**
  * 创建统一的错误响应
@@ -125,6 +91,14 @@ export function conflict(message: string): NextResponse<ApiErrorResponse> {
 }
 
 /**
+ * 409 Conflict - 同一目标的后台任务正在运行（按 target 防重复）。
+ * body 中附带原任务（id、kind、startedAt、target），前端可据 waitingTask.target 进入等待。
+ */
+export function taskAlreadyRunning(task: Pick<BackgroundTask, "id" | "kind" | "startedAt" | "target">): NextResponse<ApiErrorResponse> {
+    return createErrorResponse("TASK_ALREADY_RUNNING", 409, ErrorCode.TASK_ALREADY_RUNNING, { task });
+}
+
+/**
  * 429 Too Many Requests - 请求过多，Retry-After 告诉客户端多少秒后再试
  */
 export function tooManyRequests(retryAfterMs: number, message: string = "Too many requests"): NextResponse<ApiErrorResponse> {
@@ -134,8 +108,23 @@ export function tooManyRequests(retryAfterMs: number, message: string = "Too man
 }
 
 /**
- * 500 Internal Server Error - 服务器错误
+ * 把服务端错误记入匿名错误回报（遥测开启时）。动态导入遥测模块，失败静默，不影响响应；
+ * scope 是不含 ID 的短标识，如 api:exams
  */
-export function internalError(message: string = "Internal server error"): NextResponse<ApiErrorResponse> {
+export function reportApiError(scope: string, error: unknown): void {
+    import("@/lib/telemetry/server")
+        .then(({ reportServerError }) => reportServerError(scope, error))
+        .catch(() => undefined);
+}
+
+/**
+ * 500 Internal Server Error - 服务器错误。
+ * 传入 options.error 时同时记入错误回报（scope 缺省为 api）
+ */
+export function internalError(
+    message: string = "Internal server error",
+    options?: { error?: unknown; scope?: string }
+): NextResponse<ApiErrorResponse> {
+    if (options?.error !== undefined) reportApiError(options.scope ?? "api", options.error);
     return createErrorResponse(message, 500, ErrorCode.INTERNAL_ERROR);
 }

@@ -31,6 +31,8 @@ NEXTAUTH_URL=http://localhost:3000
 
 When the app is accessed from other devices, set `NEXTAUTH_URL` to the full URL actually used to open it.
 
+To send no anonymous statistics at all (restricted networks or demo sites), add `TELEMETRY_DISABLED=true` to `.env`; it forces local recording, error reporting and forwarding off. Otherwise adjust them under "Settings → User Management → Privacy & telemetry"; see [Settings and Users](Settings-and-Users-en#privacy-and-telemetry).
+
 Create `docker-compose.yml`:
 
 ```yaml
@@ -135,15 +137,15 @@ Every release on [Releases](https://github.com/margrop/wrong-notebook/releases) 
 | Android phone / tablet (standalone) | Install `WrongNotebook-Android-Phone-<version>.apk` or `WrongNotebook-Android-Tablet-<version>.apk` | App-private directory, removed on uninstall |
 | Android phone / tablet (client) | Install `WrongNotebook-Android-Client-Phone-<version>.apk` or `-Client-Tablet-<version>.apk` and enter the server address on first launch | Stores no data; connects to a deployed server |
 
-Windows installers are currently unsigned, and the project is applying to SignPath Foundation. See the [Code signing policy](https://github.com/margrop/wrong-notebook/blob/main/doc/CODE_SIGNING.en.md) for scope, responsibilities and status, and the [privacy policy](https://github.com/margrop/wrong-notebook/blob/main/doc/PRIVACY.en.md) for data processing. Maintainers can follow the [Windows signing setup guide](https://github.com/margrop/wrong-notebook/blob/main/doc/WINDOWS_SIGNING.md) after approval.
+Windows installers are currently unsigned. The project has been accepted by SignPath Foundation and is testing the integration with a test certificate; signing will be enabled once the production certificate is issued. See the [Code signing policy](https://github.com/margrop/wrong-notebook/blob/main/doc/CODE_SIGNING.en.md) for scope, responsibilities and status, and the [privacy policy](https://github.com/margrop/wrong-notebook/blob/main/doc/PRIVACY.en.md) for data processing. Maintainers can follow the [Windows signing setup guide](https://github.com/margrop/wrong-notebook/blob/main/doc/WINDOWS_SIGNING.md).
 
 Desktop builds listen only on the local machine, on port 39300 by default; the fnOS build listens on port 39300 and is reachable on the LAN. The database, AI configuration and session secret all live in the data directory, so back up the whole directory.
 
-Desktop installers are unsigned. If macOS says the app is damaged or cannot be opened, first move it to Applications, then run these commands in Terminal to remove the quarantine flag and re-sign it locally before opening it:
+Desktop installers do not yet carry a trusted signature: Windows installers are unsigned, and macOS packages are only ad-hoc signed and not notarized by Apple. If macOS blocks the first launch, move the app to Applications, then go to System Settings → Privacy & Security and click **Open Anyway**. If macOS still says the app is damaged (common with older packages), run these commands in Terminal to remove the quarantine flag and re-sign it locally before opening it:
 
 ```bash
 xattr -cr /Applications/WrongNotebook.app
 codesign --force --deep --sign - /Applications/WrongNotebook.app
 ```
 
-The Android standalone edition runs the server on the phone with no separate deployment and needs a 64-bit ARM device on Android 8.0 or later; the Android client edition is only a shell that connects to a server, which must first be deployed with one of the methods above. See [INSTALL_PACKAGES.md](https://github.com/margrop/wrong-notebook/blob/main/doc/INSTALL_PACKAGES.md) for details.
+The Android standalone edition runs the server on the phone with no separate deployment and needs a 64-bit ARM device on Android 8.0 or later; both Android editions need Android System WebView 111 or later; the Android client edition is only a shell that connects to a server, which must first be deployed with one of the methods above. See [INSTALL_PACKAGES.md](https://github.com/margrop/wrong-notebook/blob/main/doc/INSTALL_PACKAGES.md) for details.

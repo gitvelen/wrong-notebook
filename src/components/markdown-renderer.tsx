@@ -6,6 +6,11 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { prepareMarkdownMath } from '@/lib/markdown-math';
 
+/** 由下划线组成的分隔线（如 ____）：题目中的作答横线，而非 --- / *** 分隔线 */
+function isWritingLine(source: string): boolean {
+    return /^_[_ \t]*$/.test(source.trim());
+}
+
 interface MarkdownRendererProps {
     content?: string | null;
     className?: string;
@@ -34,7 +39,7 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                     ),
                     // react-markdown 10 不再传 inline：code 统一按行内样式，代码块样式由 pre 提供并重置内部 code
                     code: ({ node, className, ...props }) => (
-                        <code className={`bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground ${className ?? ''}`} {...props} />
+                        <code className={`bg-muted px-1.5 py-0.5 rounded text-sm font-mono ${className ?? ''}`} {...props} />
                     ),
                     pre: ({ node, ...props }) => (
                         <pre className="bg-muted p-4 rounded-lg overflow-x-auto my-3 font-mono text-sm [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none" {...props} />
@@ -50,7 +55,18 @@ export function MarkdownRenderer({ content, className = '' }: MarkdownRendererPr
                     td: ({ node, ...props }) => (
                         <td className="border border-border px-4 py-2" {...props} />
                     ),
-                    strong: ({ node, ...props }) => <strong className="font-bold text-foreground" {...props} />,
+                    // 单独成行的 ____ 在 Markdown 中是分隔线，题目里实为作答横线：上方留出书写高度，并加深线条便于打印
+                    hr: ({ node, ...props }) => {
+                        const start = node?.position?.start.offset;
+                        const end = node?.position?.end.offset;
+                        const source = typeof start === 'number' && typeof end === 'number'
+                            ? processedContent.slice(start, end)
+                            : '';
+                        return isWritingLine(source)
+                            ? <hr className="writing-line mt-10 mb-4 border-0 border-t border-foreground/70" {...props} />
+                            : <hr className="my-4 border-border" {...props} />;
+                    },
+                    strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
                     em: ({ node, ...props }) => <em className="italic" {...props} />,
                 }}
             >

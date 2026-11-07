@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { sanitizeFigureSvg } from '../figure-svg';
+import { parseRecognizedGrade } from '@/lib/question/question-grade';
+import { normalizeQuestionType } from '@/lib/question/question-type';
+import type { QuestionType } from '@/lib/question/question-type';
 
 /**
  * Zod schema for validating AI-parsed questions
@@ -20,6 +23,8 @@ export const ParsedQuestionSchema = z.object({
     knowledgePoints: z.array(z.string()).max(5, "知识点最多 5 个"),
     requiresImage: z.boolean().optional().default(false), // 题目是否依赖图片（如几何题）
     difficultyStars: z.number().int().min(1).max(5).nullable().optional(), // 难度星级 1~5，AI 未给出时为空
+    questionType: z.string().nullable().optional(), // 题型 key，AI 未给出或无法识别时为空（保存时经 normalizeQuestionType 规范化）
+    gradeSemester: z.string().max(100).nullable().optional(), // 题目年级学期，AI 无法判断时为空
     hasFigure: z.boolean().optional(), // 题目是否带配图
     figureSvg: z.string().nullable().optional(), // AI 重绘的 SVG 配图（已净化）
 });
@@ -57,10 +62,17 @@ export const MasteryEvaluationSchema = z.object({
 });
 
 /**
+ * 过滤推理模型在回复文本中输出的 <think> / <thinking> 思考过程块
+ */
+export function stripThinkingTags(text: string): string {
+    return text.replace(/<(think|thinking)\b[^>]*>[\s\S]*?<\/\1>/gi, '').trim();
+}
+
+/**
  * 从 AI 文本回复中提取 JSON 对象（兼容 markdown 代码块和前后多余文本）
  */
 export function extractJsonObject(text: string): unknown {
-    let jsonStr = text.trim();
+    let jsonStr = stripThinkingTags(text);
     const blockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (blockMatch) {
         jsonStr = blockMatch[1].trim();
@@ -71,6 +83,12 @@ export function extractJsonObject(text: string): unknown {
         jsonStr = jsonStr.substring(start, end + 1);
     }
     return JSON.parse(jsonStr);
+}
+
+/** 识别失败保留空年级，格式错误仍按 AI 返回异常处理。 */
+export function parseGradeRecognition(text: string): string | null {
+    const parsed = z.object({ gradeSemester: z.string().nullable() }).parse(extractJsonObject(text));
+    return parseRecognizedGrade(parsed.gradeSemester);
 }
 
 export const AnswerGradingSchema = z.object({
@@ -112,6 +130,14 @@ export const MIN_DIFFICULTY_STARS = 1;
 export const MAX_DIFFICULTY_STARS = 5;
 
 /**
+ * 解析 AI 给出的题型：接受标准 key 或中英文别名，无法识别时返回 null。
+ * 绝不因此字段导致整体解析失败。
+ */
+export function parseQuestionType(value: unknown): QuestionType | null {
+    return normalizeQuestionType(value);
+}
+
+/**
  * 解析 AI 给出的难度星级（数字、"3"、"3 星"、"★★★" 均可），无法识别或越界时返回 null
  */
 export function parseDifficultyStars(value: unknown): number | null {
@@ -134,13 +160,19 @@ export function parseDifficultyStars(value: unknown): number | null {
 export interface TagSuggestionResult {
     tags: string[];
     difficultyStars: number | null;
+    /** AI 判断的题型 key，未给出或无法识别时为空 */
+    questionType: QuestionType | null;
 }
 
 /**
- * 解析 AI 选取的知识点（只保留可选清单中存在的标签，去重，最多 5 个）和难度星级
+ * 解析 AI 选取的知识点（只保留可选清单中存在的标签，去重，最多 5 个）、难度星级和题型
  */
 export function parseTagSuggestion(text: string, allowedTags: string[]): TagSuggestionResult {
-    const parsed = z.object({ tags: z.array(z.string()), difficultyStars: z.unknown().optional() }).parse(extractJsonObject(text));
+    const parsed = z.object({
+        tags: z.array(z.string()),
+        difficultyStars: z.unknown().optional(),
+        questionType: z.unknown().optional(),
+    }).parse(extractJsonObject(text));
     const allowed = new Set(allowedTags);
     const result: string[] = [];
     for (const tag of parsed.tags.map((value) => value.trim())) {
@@ -148,7 +180,11 @@ export function parseTagSuggestion(text: string, allowedTags: string[]): TagSugg
             result.push(tag);
         }
     }
-    return { tags: result.slice(0, MAX_KNOWLEDGE_TAGS), difficultyStars: parseDifficultyStars(parsed.difficultyStars) };
+    return {
+        tags: result.slice(0, MAX_KNOWLEDGE_TAGS),
+        difficultyStars: parseDifficultyStars(parsed.difficultyStars),
+        questionType: parseQuestionType(parsed.questionType),
+    };
 }
 
 export interface FigureResult {

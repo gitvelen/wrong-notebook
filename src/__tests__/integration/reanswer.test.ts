@@ -34,9 +34,10 @@ vi.mock('@/lib/auth', () => ({
 
 const scopeMocks = vi.hoisted(() => ({
     findFirst: vi.fn(),
+    findUser: vi.fn(),
     getNotebookCandidateTags: vi.fn(),
 }));
-vi.mock('@/lib/prisma', () => ({ prisma: { subject: { findFirst: scopeMocks.findFirst } } }));
+vi.mock('@/lib/prisma', () => ({ prisma: { subject: { findFirst: scopeMocks.findFirst }, user: { findUnique: scopeMocks.findUser } } }));
 vi.mock('@/lib/ai/tag-service', () => ({ getNotebookCandidateTags: scopeMocks.getNotebookCandidateTags }));
 
 // Import after mocks
@@ -48,6 +49,17 @@ describe('/api/reanswer', () => {
     });
 
     describe('POST /api/reanswer (重新回答问题)', () => {
+        it.each([['fixed', '四年级上', '四年级上'], ['ai', null, '高二下']] as const)('新文字录入遵循 %s 年级规则', async (gradeRecognitionMode, targetGrade, expectedGrade) => {
+            scopeMocks.findUser.mockResolvedValue({ gradeRecognitionMode, fixedGradeSemester: '四年级上', educationStage: 'junior_high', enrollmentYear: 2025 });
+            mocks.mockAIService.reanswerQuestion.mockResolvedValue({ answerText: '答', analysis: '析', gradeSemester: '高二下' });
+            const response = await POST(new Request('http://localhost/api/reanswer', {
+                method: 'POST', body: JSON.stringify({ questionText: '题目', forImport: true }),
+            }));
+            expect(response.status).toBe(200);
+            expect((await response.json()).gradeSemester).toBe(expectedGrade);
+            expect(mocks.mockAIService.reanswerQuestion.mock.calls[0][4]).toBe(targetGrade);
+        });
+
         it('应该成功重新回答问题', async () => {
             const aiResult = {
                 answerText: 'x = 3',
@@ -71,6 +83,18 @@ describe('/api/reanswer', () => {
             expect(response.status).toBe(200);
             expect(data.answerText).toBe('x = 3');
             expect(data.analysis).toContain('移项');
+        });
+
+        it('前端提交的空值（subjectId、subject 等为 null）不被参数校验拒绝', async () => {
+            mocks.mockAIService.reanswerQuestion.mockResolvedValue({ answerText: 'x = 3', analysis: '移项', knowledgePoints: [] });
+
+            const response = await POST(new Request('http://localhost/api/reanswer', {
+                method: 'POST',
+                body: JSON.stringify({ questionText: '求解 x + 2 = 5', language: 'zh', subject: null, subjectId: null, gradeSemester: null, imageBase64: null }),
+                headers: { 'Content-Type': 'application/json' },
+            }));
+
+            expect(response.status).toBe(200);
         });
 
         it('应该支持指定学科', async () => {
@@ -461,7 +485,7 @@ describe('/api/reanswer', () => {
             expect(scopeMocks.findFirst).toHaveBeenCalledWith(expect.objectContaining({
                 where: { id: 'nb-1', user: { email: 'user@example.com' } },
             }));
-            expect(scopeMocks.getNotebookCandidateTags).toHaveBeenCalledWith({ stage: 'primary', subject: 'math' });
+            expect(scopeMocks.getNotebookCandidateTags).toHaveBeenCalledWith({ stage: 'primary', subject: 'math' }, 'default');
             expect(mocks.mockAIService.reanswerQuestion.mock.calls[0][5]).toEqual(candidateTags);
         });
 

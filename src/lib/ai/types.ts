@@ -3,7 +3,8 @@ export type { ParsedQuestionFromSchema as ParsedQuestion } from './schema';
 import type { ParsedQuestionFromSchema } from './schema';
 
 // Import and re-export MistakeStatus from the single source of truth
-import type { MistakeStatus } from '../mistake-status';
+import type { MistakeStatus } from '@/lib/question/mistake-status';
+import type { QuestionType } from '@/lib/question/question-type';
 import type { NarrationSegment } from '../svg-animation';
 export type { MistakeStatus };
 
@@ -13,6 +14,7 @@ export type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'harder';
 export type GradeLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 export interface ReanswerQuestionResult {
+    gradeSemester?: string | null;
     answerText: string;
     analysis: string;
     knowledgePoints: string[];
@@ -21,12 +23,17 @@ export interface ReanswerQuestionResult {
     mistakeStatus: MistakeStatus;
     subject?: string; // AI 判断的学科，自定义模板未输出时为空
     difficultyStars?: number | null; // AI 评定的难度星级 1~5，未输出时为空
+    questionType?: QuestionType | null; // AI 判断的题型，未输出或无法识别时为空
 }
 
 export type { FigureResult } from './schema';
 export type { LatexFixInput, LatexFixResult } from './latex-fix';
+export type { TextFixInput, TextFixResult } from './text-fix';
 import type { LatexFixInput, LatexFixResult } from './latex-fix';
 import type { FigureResult } from './schema';
+export type { QuestionSplitInput, QuestionSplitResult, SplitQuestion } from './question-split';
+import type { QuestionSplitInput, QuestionSplitResult } from './question-split';
+import type { TextFixInput, TextFixResult } from './text-fix';
 
 export interface GeogebraAnalysisResult {
     suitable: boolean;
@@ -44,6 +51,8 @@ export interface MasteryHistoryEntry {
 }
 
 export interface MasteryEvaluationInput {
+    /** 本次评估的 UTC 时间；未提供时按请求时间评估。 */
+    evaluatedAt?: string;
     questionText: string;
     knowledgePoints: string[];
     mistakeStatus?: string | null;
@@ -92,7 +101,9 @@ export interface CandidateTags {
 }
 
 export interface AIService {
-    analyzeImage(imageBase64: string, mimeType?: string, language?: 'zh' | 'en', grade?: GradeLevel | null, subject?: string | null, gradeSemester?: string | null, candidateTags?: CandidateTags): Promise<ParsedQuestionFromSchema>;
+    /** 只识别年级学期，用于直接录入或外部识别结果缺少年级的情况。 */
+    recognizeGrade(questionText: string): Promise<string | null>;
+    analyzeImage(imageBase64: string, mimeType?: string, language?: 'zh' | 'en', grade?: GradeLevel | null, subject?: string | null, gradeSemester?: string | null, candidateTags?: CandidateTags, referenceText?: string | null): Promise<ParsedQuestionFromSchema>;
     /** originalFigureSvg：原题的 SVG 配图，新题需要配图时据此重新绘制 */
     generateSimilarQuestion(originalQuestion: string, knowledgePoints: string[], language?: 'zh' | 'en', difficulty?: DifficultyLevel, gradeSemester?: string | null, originalFigureSvg?: string | null): Promise<ParsedQuestionFromSchema>;
     /** 根据题目图片单独重绘配图 */
@@ -110,6 +121,10 @@ export interface AIService {
     gradeAnswer(input: AnswerGradingInput): Promise<AnswerGradingResult>;
     /** 从标签库中选知识点，并评定难度星级 */
     suggestKnowledgeTags(input: TagSuggestionInput): Promise<TagSuggestionResult>;
+    /** 把多题文字（按行号）或一张多题图片分成独立的题目；图片分题必须把图片随请求发给模型 */
+    splitQuestions(input: QuestionSplitInput): Promise<QuestionSplitResult>;
+    /** 修正题目文字：删去混入的草稿、修正 OCR 错字，数字和算式保持原样 */
+    fixQuestionText(input: TextFixInput): Promise<TextFixResult>;
 }
 
 export interface AIConfig {

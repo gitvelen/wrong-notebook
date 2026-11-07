@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './support/fixtures';
 import { ADMIN_PASSWORD } from './helpers';
 
 async function login(page: Page) {
@@ -9,7 +9,7 @@ async function login(page: Page) {
     await page.waitForURL('**/', { timeout: 15000 });
 }
 
-test('知识点统计按标签计数，打印预览显示所选错题本的题目和答案', async ({ page }) => {
+test('知识点页签按标签计数，打印预览显示所选错题本的题目和答案', async ({ page }) => {
     test.setTimeout(90000);
     await login(page);
 
@@ -42,15 +42,29 @@ test('知识点统计按标签计数，打印预览显示所选错题本的题�
             ids.push(created.id);
         }
 
-        // 知识点统计：同一标签的 3 道题合计为 3 次
-        await page.goto('/stats?tab=tag-stats');
-        await expect(page.getByRole('tab', { name: '知识点统计' })).toHaveAttribute('aria-selected', 'true');
+        // 知识点页签：同一标签的 3 道题合计为 3 次
+        await page.goto('/stats?tab=tags');
+        await expect(page.getByRole('tab', { name: '知识点' })).toHaveAttribute('aria-selected', 'true');
         const row = page.locator('div.space-y-1').filter({ hasText: tag });
         await expect(row.getByText('3 次', { exact: true })).toBeVisible({ timeout: 15000 });
+
+        // 旧链接 ?tab=tag-stats 自动映射到知识点页签
+        await page.goto('/stats?tab=tag-stats');
+        await expect(page.getByRole('tab', { name: '知识点' })).toHaveAttribute('aria-selected', 'true');
 
         // 切换标签页会记录在地址中，刷新后保持
         await page.getByRole('tab', { name: '练习统计' }).click();
         await expect(page).toHaveURL(/tab=practice/);
+
+        // 统计中心选择学科后，点击「待复习」卡片跳转到该错题本筛选后的列表
+        await page.goto(`/stats?subject=${notebook.id}`);
+        await expect(page.getByRole('link', { name: '查看待复习错题' })).toBeVisible({ timeout: 15000 });
+        await page.getByRole('link', { name: '查看待复习错题' }).click();
+        await expect(page).toHaveURL(new RegExp(`/notebooks/${notebook.id}\\?mastery=new`));
+        // 列表显示全部 3 道待复习题目
+        for (let i = 1; i <= 3; i++) {
+            await expect(page.getByText(`细胞题 ${i}-${suffix}`)).toBeVisible({ timeout: 15000 });
+        }
 
         // 打印预览只显示该错题本的题目，并显示答案
         await page.goto(`/print-preview?subjectId=${notebook.id}`);
@@ -66,7 +80,34 @@ test('知识点统计按标签计数，打印预览显示所选错题本的题�
         await expect(firstQuestion).toBeChecked();
         await firstQuestion.uncheck();
         await expect(firstQuestion).not.toBeChecked();
-        await expect(page.getByRole('button', { name: /打印/ })).toBeEnabled();
+        await expect(page.getByRole('button', { name: '打印 / 保存 PDF' })).toBeEnabled();
+
+        // 搜索只列出匹配的题目，清空搜索后恢复全部
+        const search = page.getByRole('searchbox', { name: '搜索题目文字、编号或知识点' });
+        await search.fill(`细胞题 2-${suffix}`);
+        await expect(page.getByRole('checkbox', { name: new RegExp(`细胞题 2-${suffix}`) })).toBeVisible();
+        await expect(page.getByRole('checkbox', { name: new RegExp(`细胞题 3-${suffix}`) })).toHaveCount(0);
+        await search.fill('');
+        // 预览中点「不打印此题」即取消勾选
+        const thirdQuestion = page.getByRole('checkbox', { name: new RegExp(`细胞题 3-${suffix}`) });
+        await expect(thirdQuestion).toBeChecked();
+        const removeButtons = page.getByRole('button', { name: '不打印此题' });
+        await expect(removeButtons).toHaveCount(2);
+        await removeButtons.first().click();
+        await expect(removeButtons).toHaveCount(1);
+        // 列表按创建时间倒序，第一题为第 3 题
+        await expect(thirdQuestion).not.toBeChecked();
+
+        // 深色系统下打印时仍保持白底深色文字，不出现浅白近透明字迹
+        await page.emulateMedia({ colorScheme: 'dark', media: 'print' });
+        await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+        const answerColor = await page.getByText(`答案 2-${suffix}`).evaluate((el) => getComputedStyle(el).color);
+        expect(answerColor).not.toBe('rgb(255, 255, 255)');
+        const channels = answerColor.match(/\d+(\.\d+)?/g)?.slice(0, 3).map(Number) ?? [];
+        expect(channels).toHaveLength(3);
+        // 无论是 rgb(r, g, b) 还是 oklch(L C H)，亮度/RGB 值都远低于深色前景（0.97 / 245）
+        expect(channels[0]).toBeLessThan(80);
+        await page.emulateMedia({ colorScheme: 'light', media: 'screen' });
     } finally {
         for (const id of ids) {
             expect((await page.request.delete(`/api/error-items/${id}/delete`)).ok()).toBeTruthy();

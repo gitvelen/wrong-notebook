@@ -2,6 +2,7 @@ import { ParsedQuestion } from "@/lib/ai/types";
 import type { VendorConfig, VendorProviderId } from "@/lib/ai/vendor-presets";
 import type { MiniMaxCodeConfig } from "@/lib/minimax-code/constants";
 import type { MasteryStatus } from "@/lib/mastery-status";
+import type { QuestionType } from "@/lib/question/question-type";
 import type { TtsConfig } from "@/lib/tts/constants";
 
 // 通用分页响应类型
@@ -50,6 +51,7 @@ export interface Notebook {
     name: string;
     stage?: string;              // 学段：primary / junior_high / senior_high
     subjectKey?: string | null;  // 学科：math / english 等
+    tagSet?: string | null;      // 标签体系：default / cn-math-taxonomy 等
     userId: string;
     createdAt: string;
     updatedAt: string;
@@ -91,6 +93,10 @@ export interface ErrorItem {
     difficultyStars?: number | null; // 难度星级 1~5
     hasFigure?: boolean;             // 是否有配图
     figureSvg?: string | null;       // AI 重绘的 SVG 配图
+    figureScale?: number;            // 配图显示与打印比例，默认 100%
+    figureAlign?: 'left' | 'center' | 'right' | string; // 配图显示与打印位置，默认 center
+    answerSpacePx?: number | null;   // 打印时手动设置的题下留白（px），为空时按全局档位
+    questionType?: string | null;    // 题型，取值来自 question-type.ts
 
     createdAt: string;
     updatedAt: string;
@@ -99,19 +105,22 @@ export interface ErrorItem {
 /** 列表卡片数据；不包含原图、解答和动画等详情字段。 */
 export type ErrorItemSummary = Pick<ErrorItem,
     'id' | 'shortId' | 'questionText' | 'mistakeStatus' | 'knowledgePoints' |
-    'difficultyStars' | 'masteryStatus' | 'masteryProbability' | 'createdAt'
+    'difficultyStars' | 'masteryStatus' | 'masteryProbability' | 'createdAt' | 'questionType'
 > & { tags?: Pick<Tag, 'name'>[] };
 
 /** 打印所需内容，独立于完整详情与列表卡片的数据类型。 */
 export type PrintableErrorItem = ErrorItemSummary & Pick<ErrorItem,
-    'originalImageUrl' | 'answerText' | 'analysis' | 'figureSvg' | 'gradeSemester' | 'paperLevel'
+    'originalImageUrl' | 'answerText' | 'analysis' | 'figureSvg' | 'figureScale' | 'figureAlign' | 'answerSpacePx' | 'gradeSemester' | 'paperLevel'
 > & { subject?: Pick<Notebook, 'name'> | null };
 
 // For creation/updates
 export interface CreateErrorItemRequest extends ParsedQuestion {
     originalImageUrl: string;
+    figureScale?: number;
+    figureAlign?: 'left' | 'center' | 'right';
     subjectId?: string;
-    gradeSemester?: string;
+    gradeSemester?: string | null;
+    recognizedGradeSemester?: string | null;
     paperLevel?: string;
 }
 
@@ -133,13 +142,19 @@ export interface UserProfile {
     role: string;
     isActive: boolean;
     confirmBeforeImport?: boolean;
+    gradeRecognitionMode?: 'fixed' | 'ai';
+    fixedGradeSemester?: string | null;
     enableGeogebra?: boolean;
     enableSvgAnimation?: boolean;
+    /** 界面主题偏好：system / light / dark */
+    themePreference?: string;
     questionDuplicateThreshold?: number;
     masteryThreshold?: number;
 }
 
 export interface UpdateUserProfileRequest {
+    gradeRecognitionMode?: 'fixed' | 'ai';
+    fixedGradeSemester?: string | null;
     questionDuplicateThreshold?: number;
     masteryThreshold?: number;
     name?: string;
@@ -165,6 +180,8 @@ export interface AppConfig extends VendorConfigs {
     allowRegistration?: boolean;
     /** 普通用户每天可发起的 AI 调用次数，0 表示不限制；管理员不受限制 */
     aiDailyLimit?: number;
+    /** 同一模型同时进行的 AI 调用上限，超出的调用排队；默认 5 */
+    aiConcurrencyLimit?: number;
     timeZone?: string;
     /** 管理员完成（或跳过）安装向导的时间，ISO 字符串；未设置时新安装会自动进入向导 */
     setupCompletedAt?: string;
@@ -202,24 +219,76 @@ export interface AppConfig extends VendorConfigs {
 }
 
 
+export type StatsRange = '7d' | '30d' | '6m' | 'all';
+
 export interface AnalyticsData {
     totalErrors: number;
+    newCount: number;
+    reviewingCount: number;
     masteredCount: number;
     masteryRate: number;
     subjectStats: { name: string; value: number }[];
-    activityData: { date: string; count: number }[];
+    /** 错因分布：按 mistakeStatus 分组（not_attempted / wrong_attempt / unknown） */
+    mistakeStatusStats: { name: string; value: number }[];
+    /** 错误类型分布：按 errorType 分组，自由文本取前 7 个，其余合并为 __other__ */
+    errorTypeStats: { name: string; value: number }[];
+    /** 难度分布：按 difficultyStars 分组，始终返回 1~5 星，未评定（null）数量大于 0 时附加 */
+    difficultyStarsStats: { stars: number | null; total: number; mastered: number }[];
+    activityData: { date: string; count: number; added: number; mastered: number }[];
+    range: StatsRange;
+    granularity: 'day' | 'month';
 }
 
 export interface PracticeStatsData {
     subjectStats: { name: string; value: number }[];
     activityStats: { date: string; total: number; correct: number;[key: string]: number | string }[];
     difficultyStats: { name: string; value: number }[];
-    overallStats: { total: number; correct: number; rate: string };
+    overallStats: { total: number; correct: number; attempted: number; rate: string };
+    activeDays: number;
+    range: StatsRange;
+    granularity: 'day' | 'month';
+}
+
+/** 学习活动热力图数据 */
+export interface ActivityStatsData {
+    days: { date: string; errors: number; practices: number }[];
+    currentStreak: number;
+    longestStreak: number;
+    totalActiveDays: number;
+    subjectId?: string;
+    subjectName?: string;
+}
+
+/** 薄弱知识点排行中的一条 */
+export interface WeakTagItem {
+    tag: string;
+    tagSet: string;
+    subjectId: string | null;
+    subjectName: string;
+    total: number;
+    unmastered: number;
+    recentAttempted: number;
+    recentCorrect: number;
+    recentErrorRate: number;
+    unmasteredRatio: number;
+}
+
+export interface WeakTagsData {
+    weakTags: WeakTagItem[];
+    range: StatsRange;
+    subjectId?: string;
+    subjectName?: string;
 }
 
 export interface TagStats {
     tag: string;
     count: number;
+    /** 学科标识，如 math */
+    subject: string;
+    /** 标签体系，default 为内置体系 */
+    tagSet: string;
+    /** 计入该条统计的标签 ID（同一体系、学科下的同名标签） */
+    tagIds: string[];
 }
 
 export interface TagStatsResponse {
@@ -238,6 +307,8 @@ export interface AdminUser extends UserProfile {
     };
     /** 今日发起的 AI 调用次数 */
     aiUsageToday: number;
+    /** 今日 AI 补全消耗的输入、输出 token（含后台掌握概率评估） */
+    aiTokensToday: { input: number; output: number };
 }
 
 export interface AdminDashboardData {
@@ -348,6 +419,7 @@ export interface PracticeHistoryResponse {
 export type ExamScope = 'unmastered' | 'mastered' | 'all';
 export type ExamPickRule = 'least_practiced' | 'random';
 export type ExamStatus = 'generating' | 'ready' | 'partial' | 'failed';
+export type ExamMode = 'generate' | 'original';
 
 export interface ExamPaperSummary {
     id: string;
@@ -355,6 +427,7 @@ export interface ExamPaperSummary {
     status: ExamStatus;
     scope: ExamScope;
     difficulty: string;
+    mode: ExamMode;
     requestedCount: number;
     questionCount: number;
     readyCount: number;
@@ -373,6 +446,16 @@ export interface ExamQuestionDetail {
     answerText: string | null;
     analysis: string | null;
     figureSvg?: string | null;
+    figureScale?: number;
+    figureAlign?: 'left' | 'center' | 'right' | string;
+    /** 打印时手动设置的题下留白（px），为空时按全局档位 */
+    answerSpacePx?: number | null;
+    /** 每题分值（最多一位小数），空表示未设分值 */
+    score?: number | null;
+    /** 创建时快照的题型 key（标准 key），空表示旧数据未快照 */
+    questionType?: QuestionType | null;
+    /** 关联错题当前的题型 key（原题可能已删除，为 null）；分组时 questionType 为空回退使用 */
+    errorItemQuestionType?: QuestionType | null;
     error: string | null;
     notebookName: string | null;
     /** 历次录入的结果，按时间正序 */
@@ -391,7 +474,10 @@ export interface ExamPaperDetail {
     status: ExamStatus;
     scope: ExamScope;
     difficulty: string;
+    mode: ExamMode;
     requestedCount: number;
+    /** 是否按题型分大题显示与打印 */
+    groupByType: boolean;
     resultsRecordedAt: string | null;
     createdAt: string;
     questions: ExamQuestionDetail[];

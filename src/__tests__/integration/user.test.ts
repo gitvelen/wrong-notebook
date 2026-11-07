@@ -6,9 +6,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted to ensure mocks are initialized before module imports
 const mocks = vi.hoisted(() => ({
+    notifyAiAccountUsersDeleted: vi.fn(),
     mockPrismaUser: {
         findUnique: vi.fn(),
         update: vi.fn(),
+        delete: vi.fn(),
     },
     mockPrismaErrorItem: {
         updateMany: vi.fn(async () => ({ count: 0 })),
@@ -41,15 +43,27 @@ vi.mock('@/lib/auth', () => ({
 // Mock bcryptjs
 vi.mock('bcryptjs', () => ({
     hash: vi.fn((password: string) => Promise.resolve(`hashed_${password}`)),
+    compare: vi.fn((password: string, hashed: string) => Promise.resolve(hashed === `hashed_${password}`)),
 }));
 
+vi.mock('@/lib/ai/account-provider', () => ({ notifyAiAccountUsersDeleted: mocks.notifyAiAccountUsersDeleted }));
+
 // Import after mocks
-import { GET, PATCH } from '@/app/api/user/route';
+import { DELETE, GET, PATCH } from '@/app/api/user/route';
 import type { Session } from 'next-auth';
 
 describe('/api/user', () => {
+    const defaultDbUser = {
+        id: 'user-1',
+        email: 'test@example.com',
+        name: 'Test User',
+        role: 'user',
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
+        // withUser 包装器通过 prisma 查询用户，设置默认返回值
+        mocks.mockPrismaUser.findUnique.mockResolvedValue(defaultDbUser);
     });
 
     describe('GET /api/user', () => {
@@ -129,6 +143,31 @@ describe('/api/user', () => {
             expect(response.status).toBe(200);
             expect(mocks.mockPrismaUser.update.mock.calls[0][0].data).toEqual({ enableSvgAnimation: false });
             expect(mocks.mockPrismaUser.update.mock.calls[0][0].select.enableSvgAnimation).toBe(true);
+        });
+
+        it('应该更新界面主题偏好，并在响应中返回该字段', async () => {
+            mocks.mockPrismaUser.update.mockResolvedValue({ themePreference: 'dark' });
+
+            const response = await PATCH(new Request('http://localhost/api/user', {
+                method: 'PATCH',
+                body: JSON.stringify({ themePreference: 'dark' }),
+                headers: { 'Content-Type': 'application/json' },
+            }));
+
+            expect(response.status).toBe(200);
+            expect(mocks.mockPrismaUser.update.mock.calls[0][0].data).toEqual({ themePreference: 'dark' });
+            expect(mocks.mockPrismaUser.update.mock.calls[0][0].select.themePreference).toBe(true);
+        });
+
+        it('应该拒绝不支持的主题偏好', async () => {
+            const response = await PATCH(new Request('http://localhost/api/user', {
+                method: 'PATCH',
+                body: JSON.stringify({ themePreference: 'purple' }),
+                headers: { 'Content-Type': 'application/json' },
+            }));
+
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaUser.update).not.toHaveBeenCalled();
         });
 
         it('应该更新已掌握阈值，并按新阈值同步错题的 masteryLevel', async () => {
@@ -463,7 +502,7 @@ describe('/api/user', () => {
             const data = await response.json();
 
             expect(response.status).toBe(401);
-            expect(data.message).toBe('Unauthorized');
+            expect(data.message).toBe('Authentication required');
         });
 
         it('session 中没有 email 的用户应该被拒绝', async () => {
@@ -632,6 +671,55 @@ describe('/api/user', () => {
             // 验证更新操作使用了 session 中的 email（不能修改其他用户）
             const updateCall = mocks.mockPrismaUser.update.mock.calls[0][0];
             expect(updateCall.where.email).toBe('normaluser@example.com');
+        });
+    });
+    describe('DELETE /api/user', () => {
+        const deleteRequest = (body: unknown) => new Request('http://localhost/api/user', {
+            method: 'DELETE',
+            body: JSON.stringify(body),
+            headers: { 'Content-Type': 'application/json' },
+        });
+
+        it('普通用户输入正确密码后删除自己的账号', async () => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ ...defaultDbUser, password: 'hashed_secret1' });
+            mocks.mockPrismaUser.delete.mockResolvedValue({ id: 'user-1' });
+
+            const response = await DELETE(deleteRequest({ password: 'secret1' }));
+
+            expect(response.status).toBe(200);
+            expect(await response.json()).toEqual({ success: true });
+            expect(mocks.mockPrismaUser.delete).toHaveBeenCalledWith({ where: { id: 'user-1' } });
+            // 删除成功后通知 AI 账户实现清理外部账户
+            expect(mocks.notifyAiAccountUsersDeleted).toHaveBeenCalledWith(['user-1']);
+        });
+
+        it('密码错误时返回 400，不删除账号', async () => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ ...defaultDbUser, password: 'hashed_secret1' });
+
+            const response = await DELETE(deleteRequest({ password: 'wrong' }));
+
+            expect(response.status).toBe(400);
+            expect((await response.json()).message).toBe('Incorrect password');
+            expect(mocks.mockPrismaUser.delete).not.toHaveBeenCalled();
+            expect(mocks.notifyAiAccountUsersDeleted).not.toHaveBeenCalled();
+        });
+
+        it('未提供密码时返回校验错误', async () => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ ...defaultDbUser, password: 'hashed_secret1' });
+
+            const response = await DELETE(deleteRequest({}));
+
+            expect(response.status).toBe(400);
+            expect(mocks.mockPrismaUser.delete).not.toHaveBeenCalled();
+        });
+
+        it('管理员不能注销自己的账号', async () => {
+            mocks.mockPrismaUser.findUnique.mockResolvedValue({ ...defaultDbUser, role: 'admin', password: 'hashed_secret1' });
+
+            const response = await DELETE(deleteRequest({ password: 'secret1' }));
+
+            expect(response.status).toBe(403);
+            expect(mocks.mockPrismaUser.delete).not.toHaveBeenCalled();
         });
     });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Loader2, RefreshCw, Save } from "lucide-react";
 import { GeogebraDraft } from "@/components/correction-editor/geogebra-draft";
 import { MetaFields } from "@/components/correction-editor/meta-fields";
@@ -16,12 +16,12 @@ import { useTimeZone } from "@/contexts/TimeZoneContext";
 import { apiClient } from "@/lib/api-client";
 import { toast } from "@/lib/feedback";
 import { frontendLogger } from "@/lib/frontend-logger";
-import { calculateGrade } from "@/lib/grade-calculator";
-import { inferSubjectFromName } from "@/lib/knowledge-tags";
-import { normalizeMistakeStatusForSave } from "@/lib/mistake-status";
-import { getDefaultPaperLevel } from "@/lib/paper-level";
-import { getReanswerErrorMessage } from "@/lib/reanswer-error";
-import { buildReanswerRequestBody } from "@/lib/reanswer-request";
+import { getFixedQuestionGrade } from "@/lib/question/question-grade";
+import { inferSubjectFromName } from "@/lib/tags/knowledge-tags";
+import { normalizeMistakeStatusForSave } from "@/lib/question/mistake-status";
+import { usePaperGroups } from "@/lib/hooks/use-paper-groups";
+import { getReanswerErrorMessage } from "@/lib/question/reanswer-error";
+import { buildReanswerRequestBody } from "@/lib/question/reanswer-request";
 import type { CorrectionDraft } from "@/components/correction-editor/types";
 import type { ReanswerQuestionResult } from "@/lib/ai/types";
 import type { Notebook, UserProfile } from "@/types/api";
@@ -39,17 +39,32 @@ interface CorrectionEditorProps {
 export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, initialSubjectId, aiTimeout }: CorrectionEditorProps) {
     const { timeZone } = useTimeZone();
     const { t, language } = useLanguage();
+    // 「按原样入库」路径用占位空格通过 ParsedQuestionSchema 的 min(1) 校验，此处还原为空串，
+    // 与手工录入留空时的编辑体验一致
+    const blankToEmpty = (text: string) => (text.trim() ? text : "");
     const [data, setData] = useState<CorrectionDraft>({
         ...initialData,
+        answerText: blankToEmpty(initialData.answerText),
+        analysis: blankToEmpty(initialData.analysis),
         wrongAnswerText: initialData.wrongAnswerText || "",
         mistakeAnalysis: initialData.mistakeAnalysis || "",
         mistakeStatus: initialData.mistakeStatus || "unknown",
         subjectId: initialSubjectId,
-        gradeSemester: "",
+        gradeSemester: initialData.gradeSemester || "",
     });
-    const update = (fields: Partial<CorrectionDraft>) => setData(prev => ({ ...prev, ...fields }));
+    const gradeEdited = useRef(false);
+    const update = (fields: Partial<CorrectionDraft>) => {
+        if ('gradeSemester' in fields) gradeEdited.current = true;
+        setData(prev => ({ ...prev, ...fields }));
+    };
     // 未手工选卷时随星级更新默认值，手工选择后优先保留。
-    const paperLevel = data.paperLevel ?? getDefaultPaperLevel(data.difficultyStars) ?? "a";
+    const { groups: paperGroups } = usePaperGroups();
+    const defaultPaperLevelId = (() => {
+        if (data.paperLevel) return data.paperLevel;
+        const key = typeof data.difficultyStars === "number" && data.difficultyStars >= 4 ? "b" : "a";
+        return paperGroups.find((g) => g.key === key && g.isActive)?.id || "";
+    })();
+    const paperLevel = data.paperLevel ?? defaultPaperLevelId;
     const [isReanswering, setIsReanswering] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     // GeoGebra 动态演示默认关闭，用户在设置中开启后才显示
@@ -66,10 +81,10 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
         apiClient.get<UserProfile>("/api/user")
             .then(user => {
                 setGeogebraEnabled(!!user?.enableGeogebra);
-                if (user && user.educationStage && user.enrollmentYear) {
-                    const grade = calculateGrade(user.educationStage, user.enrollmentYear, new Date(), language, timeZone);
-                    setData(prev => ({ ...prev, gradeSemester: grade }));
-                    setEducationStage(user.educationStage);
+                if (user) {
+                    const grade = getFixedQuestionGrade(user, timeZone);
+                    setData(prev => prev.gradeSemester || gradeEdited.current ? prev : { ...prev, gradeSemester: grade || '' });
+                    setEducationStage(user.educationStage || undefined);
                 }
             })
             .catch(err => frontendLogger.error('[CorrectionEditor]', 'Failed to fetch user info for grade calculation', { error: err }));
@@ -89,7 +104,7 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 language,
                 subject: data.subject,
                 imagePreview,
-                gradeSemester: data.gradeSemester,
+                gradeSemester: data.gradeSemester ?? undefined,
                 subjectId: data.subjectId,
             });
             frontendLogger.info('[Reanswer]', requestBody.imageBase64 ? 'Sending image + text (image available for mistake analysis)' : 'Sending text only (no image available)', { timeout: aiTimeout });
@@ -105,6 +120,8 @@ export function CorrectionEditor({ initialData, onSave, onCancel, imagePreview, 
                 mistakeStatus: normalizeMistakeStatusForSave(result.mistakeStatus, result.wrongAnswerText),
                 // 重新解题给出星级时更新，否则保留原星级
                 difficultyStars: result.difficultyStars ?? prev.difficultyStars,
+                // 重新解题给出题型时更新，否则保留原题型
+                questionType: result.questionType ?? prev.questionType,
             }));
             toast.success(t.editor.reanswerSuccess || '✅ Answer and analysis updated!');
         } catch (error) {

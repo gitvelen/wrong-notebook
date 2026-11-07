@@ -73,9 +73,10 @@ export async function evaluateErrorItemMastery(errorItemId: string): Promise<voi
         where: { id: errorItemId },
         select: {
             id: true,
+            userId: true,
             questionText: true,
             mistakeStatus: true,
-            user: { select: { masteryThreshold: true } },
+            user: { select: { masteryThreshold: true, aiDataConsentAt: true } },
             tags: { select: { name: true } },
             practiceRecords: {
                 where: { result: { not: null } },
@@ -106,16 +107,21 @@ export async function evaluateErrorItemMastery(errorItemId: string): Promise<voi
         return;
     }
 
+    const evaluatedAt = new Date();
     let probability = ruleProbability;
     let reason = '';
     let source: 'ai' | 'rule' = 'rule';
     try {
-        const result = await getAIService().evaluateMastery({
+        // 用户未同意 AI 数据授权时不把题目发给 AI，直接按规则估算
+        if (!item.user?.aiDataConsentAt) throw new Error('AI_CONSENT_REQUIRED');
+        const ai = await getAIService({ userId: item.userId, kind: 'mastery' });
+        const result = await ai.evaluateMastery({
             questionText: item.questionText || '',
             knowledgePoints: item.tags.map((tag) => tag.name),
             mistakeStatus: item.mistakeStatus,
             history,
             ruleProbability,
+            evaluatedAt: evaluatedAt.toISOString(),
         });
         probability = result.probability;
         reason = result.reason;
@@ -132,7 +138,7 @@ export async function evaluateErrorItemMastery(errorItemId: string): Promise<voi
             masteryProbability: probability,
             masteryReason: reason,
             masterySource: source,
-            masteryEvaluatedAt: new Date(),
+            masteryEvaluatedAt: evaluatedAt,
             masteryLevel: masteryLevelFor(probability, item.user.masteryThreshold),
         },
     });
