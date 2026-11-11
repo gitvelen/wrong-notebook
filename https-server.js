@@ -29,6 +29,10 @@ if (!fs.existsSync(CERT_FILE) || !fs.existsSync(KEY_FILE)) {
 const options = {
     key: fs.readFileSync(KEY_FILE),
     cert: fs.readFileSync(CERT_FILE),
+    // Safari（Apple BoringSSL）与 OpenSSL 3.5+ 的 X25519MLKEM768 后量子密钥交换
+    // 存在互操作问题：Safari 会在收到 ServerHello 后直接发送告警断开，且不弹证书
+    // 警告页。强制仅使用经典曲线组，桌面浏览器与 Safari 均正常。
+    ecdhCurve: 'X25519:prime256v1:secp384r1',
 };
 
 const port = parseInt(process.env.PORT || '3000', 10);
