@@ -16,7 +16,7 @@ export const ParsedQuestionSchema = z.object({
     mistakeAnalysis: z.string().optional().default(""),
     mistakeStatus: z.enum(["not_attempted", "wrong_attempt", "unknown"]).optional().default("unknown"),
     subject: z.enum([
-        "数学", "物理", "化学", "生物",
+        "数学", "科学", "物理", "化学", "生物",
         "英语", "语文", "历史", "地理",
         "政治", "其他"
     ]),
@@ -27,6 +27,7 @@ export const ParsedQuestionSchema = z.object({
     gradeSemester: z.string().max(100).nullable().optional(), // 题目年级学期，AI 无法判断时为空
     hasFigure: z.boolean().optional(), // 题目是否带配图
     figureSvg: z.string().nullable().optional(), // AI 重绘的 SVG 配图（已净化）
+    source: z.string().trim().max(200).nullish(), // 用户填写的错题来源（如「期中试卷」），AI 不输出
 });
 
 /**
@@ -165,21 +166,25 @@ export interface TagSuggestionResult {
 }
 
 /**
- * 解析 AI 选取的知识点（只保留可选清单中存在的标签，去重，最多 5 个）、难度星级和题型
+ * 解析 AI 选取的知识点（默认只保留可选清单中存在的标签；allowCustom 时保留 AI 自行命名的名称，
+ * 清单内名称优先排在前面）、难度星级和题型；去重且最多 5 个
  */
-export function parseTagSuggestion(text: string, allowedTags: string[]): TagSuggestionResult {
+export function parseTagSuggestion(text: string, allowedTags: string[], allowCustom = false): TagSuggestionResult {
     const parsed = z.object({
         tags: z.array(z.string()),
         difficultyStars: z.unknown().optional(),
         questionType: z.unknown().optional(),
     }).parse(extractJsonObject(text));
     const allowed = new Set(allowedTags);
-    const result: string[] = [];
+    const known: string[] = [];
+    const created: string[] = [];
     for (const tag of parsed.tags.map((value) => value.trim())) {
-        if (allowed.has(tag) && !result.includes(tag)) {
-            result.push(tag);
-        }
+        if (!tag || known.includes(tag) || created.includes(tag)) continue;
+        if (allowed.has(tag)) known.push(tag);
+        else if (allowCustom) created.push(tag);
     }
+    // 复用已有标签优先，让同一错题本的知识点名称逐步收敛
+    const result = allowCustom ? [...known, ...created] : known;
     return {
         tags: result.slice(0, MAX_KNOWLEDGE_TAGS),
         difficultyStars: parseDifficultyStars(parsed.difficultyStars),

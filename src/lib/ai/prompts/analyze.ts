@@ -4,6 +4,7 @@
 
 import type { GradeLevel } from '../types';
 import {
+    generateChineseTranscriptionRules,
     generateFieldLanguageInstruction,
     generateGradeInstruction,
     generateGradeRecognitionInstruction,
@@ -11,7 +12,7 @@ import {
     DRAFT_FILTER_RULES,
     DIFFICULTY_STARS_RULES,
     QUESTION_TYPE_RULES,
-    FIGURE_SVG_RULES,
+    FIGURE_BOX_RULES,
     LATEX_RULES,
     getMathTagsForGrade,
     replaceVariables,
@@ -29,7 +30,7 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 请严格按照以下结构输出内容：
 
 <subject>
-在此处填写学科，必须是以下之一："数学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"。
+在此处填写学科，必须是以下之一："数学", "科学", "物理", "化学", "生物", "英语", "语文", "历史", "地理", "政治", "其他"。
 </subject>
 
 <knowledge_points>
@@ -44,11 +45,9 @@ export const DEFAULT_ANALYZE_TEMPLATE = `【角色与核心任务 (ROLE AND CORE
 判断题目本身是否带有配图（几何图形、函数图像、示意图、统计图、实验装置图、电路图等；不含学生的作答痕迹和纯文字表格）。有配图填 true，否则填 false。
 </has_figure>
 
-<figure_svg>
-如果 has_figure 为 true，用 SVG 重新绘制题目配图：
-${FIGURE_SVG_RULES}
-如果 has_figure 为 false，请留空。
-</figure_svg>
+<figure_box>
+${FIGURE_BOX_RULES}
+</figure_box>
 
 <wrong_answer_text>
 如果图片中包含学生针对本题提交的正式错误答案或正式解题步骤，请按原样摘录；必须过滤掉空白处或题干旁的草稿、竖式演算、试算数字、涂改痕迹、审题圈画以及人的思考过程批注。如果图片中只有草稿/思考痕迹或没有看到正式错误解答，请留空。
@@ -75,7 +74,7 @@ ${QUESTION_TYPE_RULES}
 在此处填写题目的完整文本。使用 Markdown 格式。所有数学公式使用 LaTeX 符号（行内 $...$，块级 $$...$$）。
 
 【题干转录规则】
-1. **逐字照录**：只按图片原题转录题干（含题号、分值和标点），不要改写、概括、增删字词或调整语序；看不清的字用 [?] 标注。
+1. **逐字照录**：只按图片原题转录题干（含分值、标点和原题文字，不含开头的顶层题号），不要改写、概括、增删字词或调整语序；看不清的字用 [?] 标注。
 2. **过滤草稿与思考过程**：必须过滤掉图片中人的手写草稿、竖式演算、试算算式、思考过程批注、审题圈画、涂改痕迹以及学生在横线或括号中填入的答案，严禁将草稿或人的思考过程记录进 question_text。
 3. **填空统一**：所有填空处（含已被学生手写填入答案的横线）统一还原写作 ____（4 个下划线），不论原图横线长短。
 4. **选择题选项另起一行**：如果题目是选择题，题干与选项必须分行，选项必须在题干下方另起新行书写（不要将选项紧接在题干同一行后面）。
@@ -150,14 +149,18 @@ ${LATEX_RULES}
  * Generates the analyze image prompt
  * @param language - Target language for analysis ('zh' or 'en')
  * @param grade - Optional grade level (7-9:初中, 10-12:高中) for cumulative tag filtering
+ * @param subject - 学科；语文时附带拼音与填空转写规则
  * @param options - Optional customizations
+ * @param gradeSemester - 固定年级学期
+ * @param referenceText - 题库文件文字层；含拼音时附带转写规则
  */
 export function generateAnalyzePrompt(
   language: 'zh' | 'en',
   grade?: GradeLevel | null,
   subject?: string | null,
   options?: PromptOptions,
-  gradeSemester?: string | null
+  gradeSemester?: string | null,
+  referenceText?: string | null
 ): string {
   const langInstruction = generateFieldLanguageInstruction(language);
 
@@ -174,13 +177,38 @@ export function generateAnalyzePrompt(
   const biologyTags = options?.prefetchedBiologyTags || [];
   const biologyTagsString = biologyTags.length > 0 ? biologyTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
 
+
+  const scienceTags = options?.prefetchedScienceTags || [];
+  const scienceTagsString = scienceTags.length > 0 ? scienceTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
   const englishTags = options?.prefetchedEnglishTags || [];
   const englishTagsString = englishTags.length > 0 ? englishTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
+
+  const chineseTags = options?.prefetchedChineseTags || [];
+  const chineseTagsString = chineseTags.length > 0 ? chineseTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
+
+  const historyTags = options?.prefetchedHistoryTags || [];
+  const historyTagsString = historyTags.length > 0 ? historyTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
+
+  const geographyTags = options?.prefetchedGeographyTags || [];
+  const geographyTagsString = geographyTags.length > 0 ? geographyTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
+
+  const politicsTags = options?.prefetchedPoliticsTags || [];
+  const politicsTagsString = politicsTags.length > 0 ? politicsTags.map(tag => `"${tag}"`).join(", ") : '（无可用标签）';
 
   // 根据科目决定显示哪些标签（节省 token，提高准确性）
   let tagsSection = "";
 
-  if (options?.candidateTags) {
+  if (options?.candidateTags?.allowCustom) {
+    const { subjectName, tags } = options.candidateTags;
+    tagsSection = `**${subjectName}知识点:**
+本题所在学段没有固定课程知识点清单。以下是本错题本已有的知识点，与题意吻合的必须**原样复用**：
+${tags.length > 0 ? tags.map(tag => `"${tag}"`).join(", ") : '（暂无）'}
+
+**重要提示**：
+- 已有知识点能概括本题时不得换用近义名称，同一名称必须保持一致
+- 没有吻合的再自行命名，使用教材或考纲中的标准术语，不要用题号、分值或题目原文片段
+- 每题最多 5 个标签`;
+  } else if (options?.candidateTags) {
     const { subjectName, tags } = options.candidateTags;
     tagsSection = `**${subjectName}标签:**
 本题所在错题本的学段与学科下的全部知识点如下，请使用其中的**精确标签名称**：
@@ -221,10 +249,50 @@ ${biologyTagsString}
 **重要提示**：
 - 必须从上述列表中选择精确匹配的标签
 - 每题最多 5 个标签`;
+  } else if (subject === '科学') {
+    tagsSection = `**科学标签 (Science Tags):**
+使用课程大纲中的**精确标签名称**，可选标签如下：
+${scienceTagsString}
+
+**重要提示**：
+- 必须从上述列表中选择精确匹配的标签
+- 每题最多 5 个标签`;
   } else if (subject === '英语') {
     tagsSection = `**英语标签 (English Tags):**
 使用课程大纲中的**精确标签名称**，可选标签如下：
 ${englishTagsString}
+
+**重要提示**：
+- 必须从上述列表中选择精确匹配的标签
+- 每题最多 5 个标签`;
+  } else if (subject === '语文') {
+    tagsSection = `**语文标签 (Chinese Tags):**
+使用课程大纲中的**精确标签名称**，可选标签如下：
+${chineseTagsString}
+
+**重要提示**：
+- 必须从上述列表中选择精确匹配的标签
+- 每题最多 5 个标签`;
+  } else if (subject === '历史') {
+    tagsSection = `**历史标签 (History Tags):**
+使用课程大纲中的**精确标签名称**，可选标签如下：
+${historyTagsString}
+
+**重要提示**：
+- 必须从上述列表中选择精确匹配的标签
+- 每题最多 5 个标签`;
+  } else if (subject === '地理') {
+    tagsSection = `**地理标签 (Geography Tags):**
+使用课程大纲中的**精确标签名称**，可选标签如下：
+${geographyTagsString}
+
+**重要提示**：
+- 必须从上述列表中选择精确匹配的标签
+- 每题最多 5 个标签`;
+  } else if (subject === '政治') {
+    tagsSection = `**政治标签 (Politics Tags):**
+使用课程大纲中的**精确标签名称**，可选标签如下：
+${politicsTagsString}
 
 **重要提示**：
 - 必须从上述列表中选择精确匹配的标签
@@ -243,8 +311,23 @@ ${chemistryTagsString}
 **生物标签 (Biology Tags):**
 ${biologyTagsString}
 
+**科学标签 (Science Tags):**
+${scienceTagsString}
+
 **英语标签 (English Tags):**
-${englishTagsString}`;
+${englishTagsString}
+
+**语文标签 (Chinese Tags):**
+${chineseTagsString}
+
+**历史标签 (History Tags):**
+${historyTagsString}
+
+**地理标签 (Geography Tags):**
+${geographyTagsString}
+
+**政治标签 (Politics Tags):**
+${politicsTagsString}`;
   }
 
   const template = options?.customTemplate || DEFAULT_ANALYZE_TEMPLATE;
@@ -256,9 +339,10 @@ ${englishTagsString}`;
     provider_hints: options?.providerHints || ''
   }).trim() + '\n\n' + [
     '请完整识别用户图片中的题目、独立求解，并仅根据可见的正式作答分析错因，过滤掉草稿与人的思考过程。',
-    generateOutputContract('analyze'), DRAFT_FILTER_RULES, langInstruction, LATEX_RULES,
+    // 未指定错题本时 subject 为 null，学科由 AI 判断，无法提前知道是否语文，统一附带规则
+    generateOutputContract('analyze'), DRAFT_FILTER_RULES, generateChineseTranscriptionRules(subject, referenceText, true), langInstruction, LATEX_RULES,
     generateGradeInstruction(gradeSemester), generateGradeRecognitionInstruction(gradeSemester),
     tagsSection, DIFFICULTY_STARS_RULES, QUESTION_TYPE_RULES,
-    '有配图时必须输出 figure_svg；无配图时留空。' + FIGURE_SVG_RULES,
+    '有配图时必须输出 figure_box（配图稍后会单独重绘，这里不要输出 SVG）；无配图时留空。\n' + FIGURE_BOX_RULES,
   ].filter(Boolean).join('\n\n');
 }

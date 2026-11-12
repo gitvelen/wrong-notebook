@@ -9,13 +9,22 @@ import { createLogger } from "@/lib/logger";
 import type { OpenAIInstance } from "@/types/api";
 import { isValidTimeZone } from "@/lib/date-time";
 import { VENDOR_PROVIDER_IDS } from "@/lib/ai/vendor-presets";
+import { AI_PROVIDER_IDS } from "@/lib/ai/routing";
 import { CLOUD_TTS_PROVIDERS, TTS_MODES } from "@/lib/tts/constants";
+import { isQuestionNumbering } from "@/lib/seq-no/seq-no-format";
 
 const logger = createLogger('api:settings');
 
 const minimaxCodeSchema = z.object({
     model: z.string().trim().max(100).optional(),
     autoCheckin: z.boolean().optional(),
+});
+
+/** 渠道分工：空字符串表示跟随默认渠道，其余必须为内置渠道 */
+const routingSchema = z.object({
+    vision: z.union([z.literal(''), z.enum(AI_PROVIDER_IDS)]).optional(),
+    text: z.union([z.literal(''), z.enum(AI_PROVIDER_IDS)]).optional(),
+    fallback: z.union([z.literal(''), z.enum(AI_PROVIDER_IDS)]).optional(),
 });
 
 const cloudTtsSchema = z.object({
@@ -40,7 +49,7 @@ export const GET = withUser(async (_req: Request, { session }: AuthenticatedCont
     // 协议与遥测设置由专用接口读写，不随通用设置返回，避免保存时用旧值覆盖
     const { eula, telemetry, ...config } = getAppConfig();
     if (session.user.role !== 'admin') {
-        return NextResponse.json({ aiProvider: config.aiProvider, timeouts: config.timeouts, timeZone: config.timeZone });
+        return NextResponse.json({ aiProvider: config.aiProvider, timeouts: config.timeouts, timeZone: config.timeZone, questionNumbering: config.questionNumbering });
     }
     return NextResponse.json(config);
 });
@@ -55,11 +64,22 @@ async function handlePost(req: Request) {
             if (!isValidTimeZone(body.timeZone)) return badRequest('INVALID_TIME_ZONE');
             body.timeZone = body.timeZone.trim();
         }
+        if (body.questionNumbering !== undefined && !isQuestionNumbering(body.questionNumbering)) {
+            return badRequest('INVALID_QUESTION_NUMBERING');
+        }
+        if (body.figureReview !== undefined && typeof body.figureReview !== 'boolean') {
+            return badRequest('INVALID_FIGURE_REVIEW');
+        }
         if (body.aiDailyLimit !== undefined && !(Number.isInteger(body.aiDailyLimit) && body.aiDailyLimit >= 0)) {
             return badRequest('INVALID_AI_DAILY_LIMIT');
         }
         if (body.aiConcurrencyLimit !== undefined && !isValidConcurrencyLimit(body.aiConcurrencyLimit)) {
             return badRequest('INVALID_AI_CONCURRENCY_LIMIT');
+        }
+        if (body.routing !== undefined) {
+            const parsed = routingSchema.safeParse(body.routing);
+            if (!parsed.success) return badRequest('INVALID_AI_ROUTING');
+            body.routing = parsed.data;
         }
         if (body.minimaxCode !== undefined) {
             const parsed = minimaxCodeSchema.safeParse(body.minimaxCode);

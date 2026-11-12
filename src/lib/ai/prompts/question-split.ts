@@ -2,6 +2,7 @@
  * 分题提示词模板与生成函数
  */
 
+import { CHINESE_TRANSCRIPTION_RULES } from './shared';
 /** 分题输出协议的标题，同时用于日志与测试中区分分题请求 */
 export const QUESTION_SPLIT_CONTRACT_TITLE = '【分题输出协议】';
 
@@ -38,7 +39,7 @@ ${QUESTION_SPLIT_CONTRACT_TITLE}
 {"quality":"clear|blurry|partial","questions":[{"label":"1","text":"题目文字","regions":[{"x":0,"y":0,"w":0,"h":0}],"hasFigure":false,"unclear":false,"partial":false,"section":null}]}
 - 坐标以整张图片左上角为原点，宽、高都按 1000 归一化（x、y、w、h 取 0～1000 的整数）；区域要完整包含题号、题干、选项、小问和配图，可略微留白。
 - 一道题跨栏或跨区域时，regions 可给出多个矩形（最多 4 个）；确实无法定位时 regions 为空数组，不要编造位置。
-- text 为题目文字的忠实转写（公式用 LaTeX，$...$ 包裹）；看不清的部分不要猜测，并把 unclear 设为 true。
+- text 为题目文字的忠实转写，不含题号（题号单独写在 label），从题干第一个字开始；公式用 LaTeX，$...$ 包裹；看不清的部分不要猜测，并把 unclear 设为 true。
 - 题目被照片边缘截断时 partial 设为 true；hasFigure 表示题目带配图。
 - quality：图片清晰为 clear，整体模糊为 blurry，只拍到部分试卷为 partial。
 - 按题目在试卷上的阅读顺序输出。`;
@@ -46,5 +47,5 @@ ${QUESTION_SPLIT_CONTRACT_TITLE}
 /** 分题提示词（文字按行号分题，图片识别题目与区域）；题目文字始终保持原文语言，界面语言只影响后续解析 */
 export function generateQuestionSplitPrompt(kind: 'text' | 'image'): string {
   const template = kind === 'text' ? DEFAULT_SPLIT_TEXT_TEMPLATE : DEFAULT_SPLIT_IMAGE_TEMPLATE;
-  return `${template}\n题目文字保持原文语言，不要翻译。`;
+  return `${template}\n题目文字保持原文语言，不要翻译。${kind === 'image' ? `\n\n${CHINESE_TRANSCRIPTION_RULES}` : ''}`;
 }

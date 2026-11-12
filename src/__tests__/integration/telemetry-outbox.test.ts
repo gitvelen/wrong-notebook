@@ -33,9 +33,14 @@ import { getTelemetryState } from '@/lib/telemetry/state';
 
 let database: PrismaClient;
 let directory: string;
-// 基准时间固定；instance_alive 与错误记录的写入时间通过 now 参数注入同一基准（Prisma 的
-// @default(now()) 由引擎按真实时间计算，无法在测试中冻结），保证测试不依赖运行日期。
-const NOW = new Date('2026-11-05T12:00:00Z');
+/**
+ * 测试基准时间取当前 UTC 日的 12:00：instance_alive 与错误记录的写入时间通过 now 参数注入同一基准
+ * （Prisma 的 @default(now()) 由引擎按真实时间计算，无法在测试中冻结）；收集服务契约只接受基准时间
+ * 前 7 天至后 1 天内的日期，固定在当日中午可让偏移量不跨 UTC 日界，也不会随日期推移失效。
+ */
+const NOW = new Date();
+NOW.setUTCHours(12, 0, 0, 0);
+const TODAY = NOW.toISOString().slice(0, 10);
 const HOUR = 3_600_000;
 
 function configure(telemetry: TelemetryConfig, eula = 'v1') {
@@ -101,7 +106,7 @@ describe('批次内容', () => {
         const body = sentBody(fetchMock);
         const envelope = envelopeSchema.parse(body);
         expect(validateItems(envelope.items, NOW)).toMatchObject({ rejected: 0 });
-        expect(body.items).toContainEqual({ t: 'event', day: '2026-11-05', name: 'instance_alive', payload: { platform: 'fnos', aiConfigured: true } });
+        expect(body.items).toContainEqual({ t: 'event', day: TODAY, name: 'instance_alive', payload: { platform: 'fnos', aiConfigured: true } });
         const raw = JSON.stringify(body);
         expect(raw).not.toMatch(/secret|a@b\.com|error-items|at f/);
         // 本地记录开启：标记为已发并保留
@@ -125,7 +130,7 @@ describe('批次内容', () => {
     });
 
     it('同一批只含一个版本（升级前的旧记录先发），每批最多 100 条', async () => {
-        await database.telemetryEvent.create({ data: { name: 'app_opened', payload: '{"client":"pwa"}', version: '2000.1.1', local: false, createdAt: new Date(NOW.getTime() - 2 * HOUR) } });
+        await database.telemetryEvent.create({ data: { name: 'app_opened', payload: '{"client":"pwa"}', version: '2000.1.1', local: false, createdAt: new Date(NOW.getTime() - 24 * HOUR) } });
         await addEvents(120);
         const fetchMock = okFetch();
         await flushOutbox({ now: NOW, fetchImpl: fetchMock });
@@ -179,6 +184,7 @@ describe('发送条件', () => {
     it('instance_alive 每天只写一条', async () => {
         const fetchMock = okFetch();
         await flushOutbox({ now: NOW, fetchImpl: fetchMock });
+        // 基准固定在 UTC 当日中午，+7h 仍属同一 UTC 日
         await flushOutbox({ now: new Date(NOW.getTime() + 7 * HOUR), force: true, fetchImpl: fetchMock });
         const alive = fetchMock.mock.calls.flatMap((_, i) => sentBody(fetchMock, i).items).filter((item: { name?: string }) => item.name === 'instance_alive');
         expect(alive).toHaveLength(1);

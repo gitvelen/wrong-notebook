@@ -6,7 +6,7 @@ After signing in, open "Settings → General" to adjust your own preferences:
 
 | Setting | Default |
 | --- | --- |
-| Review before import | When on, review before saving; useful when every question must be checked |
+| Review before import | On by default: check the recognition result before saving; when off, results are saved directly. Keep it on because AI may misread numbers, symbols and figures |
 | Grade recognition for new questions | Fixed mode by default: use the chosen grade and semester, or the current account grade if unset; AI recognition is also available |
 | SVG animated explanations | On |
 | GeoGebra interactive demos | Off |
@@ -26,6 +26,16 @@ Choose a rule under **Settings → General** and click **Save grade rule**. Regu
 - Applies to image recognition, text solving, batch selection, direct entry and Openclaw uploads. A grade entered manually or changed during review takes priority.
 - Image recognition and text solving return the grade in the same AI request. Direct entry and external results missing a grade use one short additional request, counted toward the daily AI limit. Duplicates do not trigger it; an attempted but uncertain result is not requested again.
 - Affects new questions only. Existing questions and grades restored from backups stay as they were. Your rule and fixed value are included in your JSON backup.
+
+## Question number display
+
+Every question has two numbers: the 6-character ID generated when it is created (such as `oYMCZa`), and a serial number that counts up from `#1000` for each user. When upgrading to a version with serial numbers, existing questions are numbered automatically in the order they were added; numbers of deleted questions are not reused, and new questions continue from the last number.
+
+Admins choose which number is shown in lists, details, printouts and import results in "Settings → General → Question number display". The 6-character ID is the default, and the setting can be switched at any time without changing any data. It is stored in the `questionNumbering` field of `config/app-config.json` (`shortId` or `seqNo`). Whichever is shown, notebook search and locate-by-number accept both the 6-character ID and the serial number (with or without `#`); question links, the MCP interface and source records in exam papers keep using the 6-character ID. Serial numbers are exported with JSON backups; on restore a number is kept if it is free, otherwise the next number is assigned.
+
+## AI figure self-check
+
+After AI redraws a question figure, an admin can enable a comparison pass under "Settings → General → AI figure self-check": the original and the redrawn result are sent side by side to AI, which finds differences in arrow directions, connections and labels and returns a corrected SVG. This adds one AI call with images per figure and takes longer, so it is off by default. Results depend on how well the model reads images: in testing, MiniMax caught missing arrows and obvious misplacements but still judged arrow directions unreliably and occasionally moved correct elements, so try it on a few questions first. The setting is stored in the `figureReview` field of `config/app-config.json`; the `FIGURE_REVIEW=true` environment variable can set the default for new instances, and the value saved in the web UI takes precedence. Regular users can only see the global setting and cannot change it.
 
 ## App time zone
 
@@ -56,7 +66,7 @@ AI features send the question text, images, answers, reference answers and expla
 
 | Role | Main permissions |
 | --- | --- |
-| Regular user | Manage their own questions, practice, exam papers and preferences; import and export their own data |
+| Regular user | Manage their own questions, practice, exam papers and preferences; import and export their own data, and merge another account's backup into the current account |
 | Admin | Global AI and prompt settings, time zone, registration switch, user management and site-wide data import/export |
 
 Admins open the dashboard from "Settings → User Management" to see usage statistics and enable, disable or delete users. Confirm the target and [back up your data](Backup-and-Restore-en) before deleting.
@@ -105,7 +115,7 @@ Admins can import the PEP curriculum tag system as a second tag library alongsid
 1. Download the required JSON file: [topics.json](https://raw.githubusercontent.com/xiaoyang111222/cn-math-taxonomy/HEAD/data/topics.json) (about 2.6 MB, from [cn-math-taxonomy](https://github.com/xiaoyang111222/cn-math-taxonomy)).
 2. Open "Settings → User Management → PEP Curriculum Knowledge Points" and click "Select topics.json and Import".
 
-The data is mainly math and also covers Chinese, English, physics, history, geography and morality & law (filed under politics); unsupported subjects such as primary science are skipped. The import is incremental and safe to repeat, and does not change the built-in tag system or existing questions. Afterwards, "PEP Curriculum Standard" can be chosen under "Tag System" when creating a notebook; it cannot be changed later. The command-line equivalent is `npx tsx scripts/seed-cnm-tags.ts <file path>`.
+The data is mainly math and also covers Chinese, English, science, physics, chemistry, biology, history, geography and morality & law (filed under politics). The import is incremental and safe to repeat, and does not change the built-in tag system or existing questions. Afterwards, "PEP Curriculum Standard" can be chosen under "Tag System" when creating a notebook; it cannot be changed later, and a primary science notebook can draw its knowledge points from it. The command-line equivalent is `npx tsx scripts/seed-cnm-tags.ts <file path>`.
 
 ## Privacy and telemetry
 

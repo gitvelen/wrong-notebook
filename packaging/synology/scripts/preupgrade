@@ -1,0 +1,3 @@
+#!/bin/sh
+# 群晖套件：升级时 docker-project 资源按新版 compose 重建容器，数据目录不变。
+exit 0

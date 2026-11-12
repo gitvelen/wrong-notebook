@@ -1,4 +1,5 @@
 import { DEFAULT_TIME_ZONE } from '../date-time';
+import { DEFAULT_QUESTION_NUMBERING } from "../seq-no/seq-no-format";
 import { parseConcurrencyLimit } from '../ai-concurrency-limit';
 import { VENDOR_PROVIDER_IDS, VENDOR_PRESETS } from '../ai/vendor-presets';
 import { CLOUD_TTS_PROVIDERS, isTtsMode } from '../tts/constants';
@@ -20,6 +21,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     aiDailyLimit: parseDailyLimit(process.env.AI_DAILY_LIMIT),
     aiConcurrencyLimit: parseConcurrencyLimit(process.env.AI_CONCURRENCY_LIMIT),
     timeZone: DEFAULT_TIME_ZONE,
+    questionNumbering: DEFAULT_QUESTION_NUMBERING,
+    // 配图比对校正默认关闭，避免重绘后额外的带图片 AI 调用；管理员可在「设置 → 通用」开启
+    figureReview: process.env.FIGURE_REVIEW === 'true',
     openai: {
         instances: process.env.OPENAI_API_KEY ? [{
             id: 'env-default',
@@ -65,9 +69,12 @@ export const DEFAULT_CONFIG: AppConfig = {
             model: process.env[`${prefix}_MODEL`],
         }];
     })),
+    // 识别与分析默认都跟随 aiProvider，不启用备用渠道
+    routing: { vision: '', text: '', fallback: '' },
     prompts: {
         analyze: '',
         similar: '',
+        reanswer: '',
     },
     timeouts: {
         analyze: 180000,
@@ -107,5 +114,14 @@ export function mergeTtsConfig(base: TtsConfig | undefined, override: TtsConfig 
     return {
         mode: override?.mode ?? base?.mode ?? 'browser',
         ...Object.fromEntries(CLOUD_TTS_PROVIDERS.map((id) => [id, { ...base?.[id], ...override?.[id] }])),
+    };
+}
+
+/** 渠道分工逐项合并，空字符串表示跟随默认渠道 */
+export function mergeRoutingConfig(base: AppConfig['routing'], override: AppConfig['routing']): NonNullable<AppConfig['routing']> {
+    return {
+        vision: override?.vision ?? base?.vision ?? '',
+        text: override?.text ?? base?.text ?? '',
+        fallback: override?.fallback ?? base?.fallback ?? '',
     };
 }

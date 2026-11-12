@@ -8,7 +8,7 @@
 
 [![GitHub downloads](https://img.shields.io/github/downloads/margrop/wrong-notebook/total?label=downloads&logo=github)](https://github.com/margrop/wrong-notebook/releases) [![npm downloads](https://img.shields.io/npm/d18m/wrong-notebook?label=npm%20downloads&logo=npm)](https://www.npmjs.com/package/wrong-notebook) [![GitHub stars](https://img.shields.io/github/stars/margrop/wrong-notebook?logo=github)](https://github.com/margrop/wrong-notebook/stargazers) [![GitHub forks](https://img.shields.io/github/forks/margrop/wrong-notebook?logo=github)](https://github.com/margrop/wrong-notebook/forks)
 
-[![桌面版](https://img.shields.io/badge/%E6%A1%8C%E9%9D%A2%E7%89%88-Windows%20%7C%20macOS%20%7C%20Linux-informational)](https://github.com/margrop/wrong-notebook/releases) [![Android](https://img.shields.io/badge/Android-34A853?logo=android&logoColor=white)](https://github.com/margrop/wrong-notebook/releases) [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://github.com/margrop/wrong-notebook/pkgs/container/wrong-notebook) [![npm](https://img.shields.io/badge/npm-CB3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/wrong-notebook) [![飞牛OS](https://img.shields.io/badge/%E9%A3%9E%E7%89%9BOS-fpk-0A84FF)](https://github.com/margrop/wrong-notebook/releases) [![Web](https://img.shields.io/badge/Web-PC%20%7C%20Mobile-orange)](https://wrong-notebook-demo.margrop.net)
+[![桌面版](https://img.shields.io/badge/%E6%A1%8C%E9%9D%A2%E7%89%88-Windows%20%7C%20macOS%20%7C%20Linux-informational)](https://github.com/margrop/wrong-notebook/releases) [![Android](https://img.shields.io/badge/Android-34A853?logo=android&logoColor=white)](https://github.com/margrop/wrong-notebook/releases) [![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)](https://github.com/margrop/wrong-notebook/pkgs/container/wrong-notebook) [![npm](https://img.shields.io/badge/npm-CB3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/wrong-notebook) [![飞牛OS](https://img.shields.io/badge/%E9%A3%9E%E7%89%9BOS-fpk-0A84FF)](https://github.com/margrop/wrong-notebook/releases) [![群晖](https://img.shields.io/badge/%E7%BE%A4%E6%99%96-spk-B5B5B6?logo=synology&logoColor=white)](https://github.com/margrop/wrong-notebook/releases) [![威联通](https://img.shields.io/badge/%E5%A8%81%E8%81%94%E9%80%9A-qpkg-1E73BE?logo=qnap&logoColor=white)](https://github.com/margrop/wrong-notebook/releases) [![Web](https://img.shields.io/badge/Web-PC%20%7C%20Mobile-orange)](https://wrong-notebook-demo.margrop.net)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Release](https://img.shields.io/github/v/release/margrop/wrong-notebook?include_prereleases)](https://github.com/margrop/wrong-notebook/releases) [![CI](https://github.com/margrop/wrong-notebook/actions/workflows/ci.yml/badge.svg)](https://github.com/margrop/wrong-notebook/actions/workflows/ci.yml) [![CodeQL](https://github.com/margrop/wrong-notebook/actions/workflows/codeql.yml/badge.svg)](https://github.com/margrop/wrong-notebook/actions/workflows/codeql.yml) [![npm](https://img.shields.io/npm/v/wrong-notebook)](https://www.npmjs.com/package/wrong-notebook)
 
@@ -30,7 +30,8 @@
 
 - **🆓 免费账号就能用**：选择「MiniMax Code OAuth」渠道，用 MiniMax Code 账号网页登录即可使用，不需要购买 API Key，应用每天自动签到领取积分（见 [MiniMax Code OAuth](#minimax-code-oauth)）；火山引擎新用户也有[免费推理额度](#火山引擎免费试用)。
 - **📚 复习闭环**：举一反三变式题自动判题、AI 评估掌握概率、艾宾浩斯间隔的今日复习、按错题组卷打印并回填结果。
-- **📦 多平台安装**：Docker 镜像（amd64 / arm64）、npm、Windows、macOS、Linux、飞牛OS、安卓手机与平板（单机版或客户端），也可添加到手机主屏幕（PWA）。
+- **🗂️ 共享真题库**：新增「真题库」页，可从 [margrop/wrong-notebook-question-bank](https://github.com/margrop/wrong-notebook-question-bank) 下载小学、初中、高中多学科题库包；导入默认只进入真题库、不产生错题，也可勾选同时写入错题本。举一反三可按知识点从真题库选题（不消耗 AI 额度），也可选「真题库变式」：先选出题库题目，再由 AI 以该题为原题生成变式题。
+- **📦 多平台安装**：Docker 镜像（amd64 / arm64）、npm、Windows、macOS、Linux、飞牛OS、群晖/威联通套件、安卓手机与平板（单机版或客户端），也可添加到手机主屏幕（PWA）。
 
 > 本仓库 fork 自 [wttwins/wrong-notebook](https://github.com/wttwins/wrong-notebook)，在其基础上增加了上述及下文列出的大部分功能。
 
@@ -57,13 +58,13 @@
 
 首页提供拍照上传、手动输入、导入题库文件和直接录入入口，支持拖拽图片与剪贴板粘贴。手机上有「拍照」「相册」「从文件选择」三个独立入口：拍照直接打开相机，相册中找不到的照片可从文件选择。
 
-「导入题库文件」支持 JSON（题目交换格式 v1）、Word（.docx）、Excel（.xlsx）、CSV 与 PDF 题库文件，解析后展示摘要（题数、错误原因、警告、暂未导入字段），选择目标错题本后按批次进入导入中心，可「按原样入库」不调用 AI；一次最多导入 2000 题。导入页可下载 Excel / CSV 模板。TXT / Markdown 文件仍在「手动输入」中经「从文件导入」填入文字框。PDF 必须带文字层；扫描版 PDF 可选择页码范围（单次最多 20 页）转为图片，由 AI 识别分题导入，每页消耗一次 AI 分题额度。带文字层的 PDF 默认给每道题按版面区域截图作为题目原图（可改为只截有图形的题或不保存），公式与图形不会因文字层乱码而丢失。
+「导入题库文件」支持 JSON（题目交换格式 v1）、Word（.docx）、Excel（.xlsx）、CSV 与 PDF 题库文件，解析后展示摘要（题数、错误原因、警告、暂未导入字段），选择目标错题本后按批次进入导入中心，可「按原样入库」不调用 AI；一次最多导入 2000 题。导入页可下载 Excel / CSV 模板。TXT / Markdown 文件仍在「手动输入」中经「从文件导入」填入文字框。PDF 必须带文字层；扫描版 PDF 可选择页码范围（单次最多 20 页）转为图片，页面按输出上限放大（A4 约 225 DPI）后由 AI 识别分题导入，每页消耗一次 AI 分题额度；分不出题目的页面（如答案页、空白页）会自动跳过，不留下失败批次。带文字层的 PDF 默认给每道题按版面区域截图作为题目原图（可改为只截有图形的题或不保存），公式与图形不会因文字层乱码而丢失。
 
 直接录入和人工校对保存失败时，页面会保留具体原因及处理建议，区分 AI 年级识别、字段长度或卷别校验、登录状态、数据库迁移与写入权限、网络或代理等问题。AI 年级识别失败时，可手动填写年级或改用固定年级后再保存；超时或断网后先确认错题本中是否已保存，避免重复提交。
 
 ![首页的拍照上传、手动输入、直接录入、剪贴板粘贴和截屏入口](doc/screenshots/upload.png)
 
-通用设置可调整导入前人工确认、录入题目的年级识别规则（固定年级或 AI 识别）、SVG 动画讲解、GeoGebra 动态演示、题目判重相似度阈值和已掌握阈值。卷别分组（A卷/B卷/其他）可在设置中自定义名称、新增分组（如单元测试、期中、期末）、停用或删除自定义分组。
+通用设置可调整导入前人工确认（默认开启，先核对再保存）、录入题目的年级识别规则（固定年级或 AI 识别）、SVG 动画讲解、GeoGebra 动态演示、题目判重相似度阈值和已掌握阈值。卷别分组（A卷/B卷/其他）可在设置中自定义名称、新增分组（如单元测试、期中、期末）、停用或删除自定义分组。
 
 ![通用设置中的导入确认、动画讲解、GeoGebra 和判重阈值](doc/screenshots/preferences.png)
 
@@ -141,22 +142,22 @@
 
 ### 录入与识别
 
-- **📷 多种录入方式**：上传图片、从剪贴板粘贴（Ctrl/⌘+V）、屏幕截图，或直接输入题目文字（支持 Markdown 和 LaTeX）；图片可裁剪（支持滚轮、双指捏合或按钮缩放图片，方便精确框选），也可在一张图上框选多道题批量导入。
-- **🤖 AI 识别与解答**：识别题目文字、答案、解析、学生的错误解答和错因，判断学科，并从知识点库中选择标签。可在「设置 → 通用」中开启「导入前人工确认」，先在校对页修改再保存。
-- **📷 照片格式与压缩**：按文件内容识别真实格式（扩展名写错也能识别），支持 JPG、PNG、WebP、HEIC/HEIF。浏览器能解码 HEIC 时直接使用（如 Safari），不能时自动加载解码组件，在裁剪前转换为 JPEG 并按照片的旋转信息摆正；无法解码时提示具体原因。裁剪预览使用缩略图，最终从原图裁剪，输出按最长边 4096、约 490 万像素、1.5MB 共同限制，JPEG 质量不低于 0.8，体积超出时缩小尺寸而不是继续降低质量，避免题目小字和公式模糊。读取、转换、裁剪压缩、上传、AI 识别和保存各阶段显示实际用时，百分比为阶段估算。
+- **📷 多种录入方式**：上传图片、从剪贴板粘贴（Ctrl/⌘+V）、屏幕截图，或直接输入题目文字（支持 Markdown 和 LaTeX）；图片可裁剪（支持滚轮、双指捏合或按钮缩放图片，方便精确框选，也可左右旋转 90° 后再框选），也可在一张图上框选多道题批量导入。拍照前可在上传区填写「错题来源」（如期中试卷），随识别任务和入库题目保存，便于在众多错题中定位来源。
+- **🤖 AI 识别与解答**：识别题目文字、答案、解析、学生的错误解答和错因，判断学科，并从知识点库中选择标签。默认开启「导入前人工确认」，AI 识别结果先在校对页核对修改再保存；可在「设置 → 通用」关闭后直接入库。
+- **📷 照片格式与压缩**：按文件内容识别真实格式（扩展名写错也能识别），支持 JPG、PNG、WebP、HEIC/HEIF。浏览器能解码 HEIC 时直接使用（如 Safari），不能时自动加载解码组件，在裁剪前转换为 JPEG 并按照片的旋转信息摆正；无法解码时提示具体原因。裁剪预览使用缩略图，最终从原图裁剪，输出按最长边 4096、约 490 万像素、1.5MB 共同限制，保存优先编码为 WebP（浏览器不支持 WebP 编码时退回 JPEG），质量不低于 0.8，体积超出时缩小尺寸而不是继续降低质量，避免题目小字和公式模糊；一道题分段拼接时放宽到最长边 8192、约 2400 万像素、4MB，避免两页竖拍拼接后文字过小。读取、转换、裁剪压缩、上传、AI 识别和保存各阶段显示实际用时，百分比为阶段估算。
 - **🧩 多题录入**：「手动输入」中一次粘贴多道题时，按题号自动分题（本地规则，不调用 AI），选项、小问和阅读材料留在所属题内，标题、姓名/日期栏等不计入题目；编号像同一道题的小问时默认按一道题处理，没有题号的多题可选「用 AI 分题」；题号有误（如 OCR 认错）导致本地分错时，也可点「分得不对？用 AI 分题」。一道题分在几张纸上时，单题裁剪中点「下一段在另一张」暂存这一段，再拍下一张接着框选，各段按顺序上下拼成一张图识别（最多 4 段）。拍照时选择「自动分题」，由支持图片输入的模型识别照片中的每道题及其在原图上的位置。分题结果先在预览页确认：可选择/取消、编辑、在光标处拆分、合并、调整顺序、删除、撤销，照片题可在原图上调整区域；一道题接到下一页时，可在这道题（标为可能被截断的题和每页最后一题）上点「下一页接着这题」，拍下一页后把这道题在本页的部分放在下一页上方拼成一张图，再自动分题为下一批，本批移出这道题；文字题可点「AI 修正文字」删去混入的草稿、修正 OCR 错字，修正结果逐字标出删改，逐题接受后才替换原文（改动或新增数字的结果不采用）；确认后才逐题解析（照片按区域裁剪后与单题拍照走同一识别流程），按「导入前人工确认」直接入库或逐题校对。已选的题都带答案时还可选「按原样入库」：不调用 AI、不消耗额度，题目按草稿中的题干、答案、解析等字段直接保存。整批在「识别任务」中显示为「一批 N 题」，刷新、锁屏或关闭页面后都能找回；失败的题可单独重试，已完成的不会重复调用 AI 或重复入库。
-- **📮 识别任务**：拍照或框选的题目上传后由服务器识别，任务和结果保存在数据库中，不依赖原页面连接。上传完成即可离开页面、锁屏或继续使用应用；页头「识别任务」入口显示识别中数量和未读结果，回到前台立即刷新，可继续校对、查看错题或重试失败任务。开启「导入前人工确认」时结果保存为待校对草稿，关闭时服务器识别后直接入库（判重、年级和卷别规则与手动保存一致），重复提交或重复确认不会重复入库。服务重启后已完成的结果仍可打开，处理中被中断的任务显示为失败并可重试；待校对和失败的任务会一直保留到处理，已保存的任务保留 7 天。
+- **📮 识别任务**：拍照或框选的题目上传后由服务器识别，任务和结果保存在数据库中，不依赖原页面连接。上传完成即可离开页面、锁屏或继续使用应用；页头「识别任务」入口显示识别中数量和未读结果，回到前台立即刷新，可继续校对、查看错题或重试失败任务。默认开启「导入前人工确认」时结果保存为待校对草稿，关闭时服务器识别后直接入库（判重、年级和卷别规则与手动保存一致），重复提交或重复确认不会重复入库。服务重启后已完成的结果仍可打开，处理中被中断的任务显示为失败并可重试；待校对和失败的任务会一直保留到处理，已保存的任务保留 7 天。
 - **🎓 录入年级规则**：在「设置 → 通用」按账户选择固定年级或 AI 识别。固定模式使用指定年级学期，未指定时沿用账户当前年级；AI 模式根据题目内容判断，无法确定时保持未设置。图片、文字、框选批量与 Openclaw 录入统一生效，手工选择优先。直接录入未填年级时会补充一次 AI 识别并计入每日用量，重复题不重复识别；已有题目和备份恢复的年级不受影响。
 - **🔁 重复题判定**：导入时比较题干相似度，超过阈值（默认 90%，可在设置中调整）的题目不会重复导入，而是在原题下记一次做错。
-- **🆔 题目 ID**：每道题有 6 位 ID，可复制，也可在错题本中输入 ID 直接打开该题；打印的错题和试卷都标有「来源 ID」，方便做完后定位原题录入结果。
+- **🆔 题目编号**：每道题同时有 6 位 ID 和流水号（每个用户从 #1000 起依次编号，升级时自动为已有题目补齐）。管理员可在「设置 → 通用 → 题目编号显示方式」中切换显示哪一种，默认显示 6 位 ID；两种编号都可复制、搜索，或在错题本中输入后直接打开该题。打印的错题和试卷都标有来源编号，方便做完后定位原题录入结果。
 
 ### 题目内容
 
 - **∑ LaTeX 公式**：题目、答案和解析中的公式用 KaTeX 显示，支持 `$…$`、`$$…$$`、`\(…\)`、`\[…\]`；编辑时可在「源代码 / 预览」之间切换。检测到公式语法错误时，详情页出现「修复 LaTeX」按钮，由 AI 只修复公式写法。
 - **📝 重新生成解答**：详情页「重新生成完整解答」由 AI 重新生成答案和解析（覆盖前二次确认），知识点和错因保持不变。
-- **🖼️ 题目配图**：识别时由 AI 用 SVG 重绘题目配图，详情页、打印和试卷都使用 SVG 配图；有配图的错题可在详情页设置「配图显示比例」（10%～200%，默认 100%）与「配图显示位置」（居左/居中/居右，默认居中），含配图的试卷也支持按题逐个调整或全卷统一调整配图比例与显示位置，保存后同步用于显示和打印，并随备份恢复。拍照原图可在「查看原题图片」中核对，也可替换或补充上传。
+- **🖼️ 题目配图**：识别时 AI 先定位配图，再把配图区域裁剪出来单独用 SVG 重绘（先逐项列出线段、箭头和标注再作图，生成后校验 SVG 是否合法），详情页、打印和试卷都使用 SVG 配图；有配图的错题可在详情页设置「配图显示比例」（10%～200%，默认 100%）与「配图显示位置」（居左/居中/居右，默认居中），含配图的试卷也支持按题逐个调整或全卷统一调整配图比例与显示位置，保存后同步用于显示和打印，并随备份恢复。拍照原图可在「查看原题图片」中核对，也可替换或补充上传。重绘配图时先打开原图框选配图区域，只把该区域交给 AI，避免整张照片中的小配图因分辨率不足而失真；也可旋转后再框选。
 - **⭐ 难度星级**：导入时由 AI 参考《高思学校竞赛数学导引》的星级标准评定 1~5 星（一二星为课本及校内拔高，三四星为常规奥数，五星为竞赛压轴），可手动修改；4 星及以上默认归入 B 卷。
-- **🏷️ 知识点标签**：错题本创建时选择学段（小学/初中/高中）和学科（创建后不可修改），小学支持数学、英语和语文；内置语文章节与知识点覆盖小学一年级至六年级及初高中。本错题本内的题目由 AI 从该学段、该学科的全部知识点中选择标签；支持自定义标签，单题或整本错题本可让 AI 重新识别知识点和难度。管理员可在「设置 → 用户管理 → 人教版课标知识点」上传 [cn-math-taxonomy](https://github.com/xiaoyang111222/cn-math-taxonomy) 的 [topics.json](https://raw.githubusercontent.com/xiaoyang111222/cn-math-taxonomy/HEAD/data/topics.json)，导入「人教版课标体系」（以数学为主，也包含语文、英语、物理、历史、地理、道德与法治，约 2800 个知识点）；导入后创建错题本时可选择标签体系，与内置体系并存，创建后不可更改。
+- **🏷️ 知识点标签**：错题本创建时选择学段（小学/初中/高中/大学）和学科（创建后不可修改），小学支持数学、英语、语文和科学；内置语文章节与知识点覆盖小学一年级至六年级及初高中，科学知识点来自导入的人教版课标体系，未导入时由 AI 自行命名。本错题本内的题目由 AI 从该学段、该学科的全部知识点中选择标签；大学没有内置课程知识点，由 AI 自行命名并保存为该错题本的标签，再次识别优先复用已有标签。支持自定义标签，单题或整本错题本可让 AI 重新识别知识点和难度。管理员可在「设置 → 用户管理 → 人教版课标知识点」上传 [cn-math-taxonomy](https://github.com/xiaoyang111222/cn-math-taxonomy) 的 [topics.json](https://raw.githubusercontent.com/xiaoyang111222/cn-math-taxonomy/HEAD/data/topics.json)，导入「人教版课标体系」（以数学为主，也包含语文、英语、科学、物理、化学、生物、历史、地理、道德与法治，约 3300 个知识点）；导入后创建错题本时可选择标签体系，与内置体系并存，创建后不可更改。
 
 ### 讲解与演示
 
@@ -167,18 +168,18 @@
 
 ### 复习与练习
 
-- **🔄 举一反三**：基于错题生成同知识点的变式题（填空或解答题），可选难度；提交答案后自动判题（不要求过程且结论一致时本地判对，证明或说明理由题交给 AI 核验论证，其余情况由 AI 对照标准答案判定并给出依据），保存前可修改结果；每道错题暂存最近一次生成的变式题与解答，再次进入时直接显示，需要新题再点「重新生成」。
+- **🔄 举一反三**：基于错题生成同知识点的变式题（填空或解答题），可选难度；也可从真题库按知识点选题，或先选题库题目再由 AI 生成该题的变式题。提交答案后自动判题（不要求过程且结论一致时本地判对，证明或说明理由题交给 AI 核验论证，其余情况由 AI 对照标准答案判定并给出依据），保存前可修改结果；每道错题暂存最近一次生成的变式题与解答，再次进入时直接显示，需要新题再点「重新生成」。
 - **📈 掌握概率**：根据举一反三和试卷的作答历史，由 AI 评估每道题的已掌握概率。错题分为三种状态：没有举一反三记录的为「待复习」，有记录且掌握概率低于已掌握阈值的为「复习中」，达到阈值的为「已掌握」。阈值默认 50%，每个用户可在设置中单独调整。
-- **📅 今日复习**：按 1、2、4、7、15、30 天的艾宾浩斯间隔安排每道错题的复习，做对进入下一轮间隔，做错从头开始。导航栏的「复习」页列出今天到期的错题（最早到期的在前），首页显示今日待复习数量。
+- **📅 今日复习**：按 1、2、4、7、15、30 天的艾宾浩斯间隔安排每道错题的复习，做对进入下一轮间隔，做错从头开始。导航栏的「复习」页列出今天到期的错题（最早到期的在前），可「按顺序复习」逐题查看答案并记录做对或做错（做对直接标记为已掌握，做错填写错误原因），顶部和底部都能翻页；首页显示今日待复习数量。
 - **🧾 错题试卷**：按错题本、知识点、题型和掌握情况随机抽题，可选择「举一反三」（AI 生成新题）或「原题直出」（直接使用原题，不消耗 AI 额度，立即可打印）；可打开「同时生成 A/B 卷」一次生成两份题目互不重复的平行卷；每道题可单独设置分值，试卷自动汇总总分，详情页可开启「按题型分大题」按选择题、填空题等分组排版；做完后可按题录入结果，结果计入原题的作答历史。
 - **🖨️ 错题打印**：筛选后打印错题，可选打印题目文字或原图、答案、解析、知识点，调节图片比例以及全局/单题留白高度（单题留白自动保存），选择题选项按长度自动横排，可直接打印或保存为 PDF。
 
 ### 管理与统计
 
-- **🔍 多维度筛选**：按掌握状态、时间范围、知识点、题型、年级学期、试卷等级等条件筛选，支持批量操作和两题相似度比较；选中的错题可导出为 JSON、Excel 或 Word（Excel 列与题库导入模板一致，可往返导入）。
+- **🔍 多维度筛选**：按掌握状态、时间范围、知识点、题型、年级学期、试卷等级等条件筛选，支持批量操作和两题相似度比较；选中的错题可移动到其他错题本（标签保持不变），也可导出为 JSON、Excel 或 Word（Excel 列与题库导入模板一致，可往返导入）。
 - **📊 数据统计**：错题与练习的掌握率、趋势和学科分布，支持时间范围与学科筛选。错题列表支持用地址参数预设掌握状态（`?mastery=new|reviewing|mastered`）和知识点标签（`?tag=标签名`）筛选。
 - **⏳ 后台任务**：页面右下角的按钮可查看识别、AI 生成、动画语音生成、批量标注、组卷等耗时事务的进度；离开页面后事务仍在服务器上继续。拍照识别的结果另在「识别任务」中持久保存。
-- **💾 数据导入导出**：在「设置」中导出或导入数据备份，包含错题本、错题、系统及自定义标签、练习与作答记录、试卷、个人偏好和已合成的云端语音；标签按体系和父子路径还原，不同年级下的同名章节与知识点分别保留，题目恢复到具体标签节点。账户凭据和 AI 配置不在备份中。
+- **💾 数据导入导出**：在「设置」中导出或导入数据备份，包含错题本、错题、系统及自定义标签、练习与作答记录、试卷、个人偏好和已合成的云端语音；标签按体系和父子路径还原，不同年级下的同名章节与知识点分别保留，题目恢复到具体标签节点。备份来自其他账号时可在确认后合并到当前账号，数据全部归当前账号，不还原对方的偏好设置。账户凭据和 AI 配置不在备份中。导出文件为 gzip 压缩的 JSON（文件名仍为 `.json`），导入自动解压并兼容旧版纯 JSON；单个备份解压后最大 256MB（常见几十 MB）。
 - **🌗 深色模式**：顶部导航栏的主题按钮可在「自动（跟随系统）」「浅色」「深色」之间切换，默认自动。偏好按用户保存在账号中，换设备登录也保持一致。
 - **🕒 应用时区**：默认北京时间，管理员可修改，日期显示与统计都按应用时区计算，详见 [时区说明](doc/TIME_ZONE.md)。
 - **🔑 一次性初始化链接**：全新安装不再预置固定密码的管理员。服务首次启动时生成只能使用一次的初始化链接，打开后自行设置管理员邮箱和密码：桌面版、安卓单机版自动打开；飞牛OS 直接在安装向导中填写管理员邮箱和密码；Docker、npm、源码运行打印在启动日志中（也可在数据目录的 `config/setup-token` 中找到令牌）。从旧版本升级的实例保留原有账号。
@@ -188,12 +189,13 @@
 - **📈 匿名遥测与使用协议**：管理员在初始化时同意[使用协议](doc/EULA.md)（飞牛OS 在安装向导中勾选），实例默认每 6 小时向错题本收集服务发送一批匿名的功能使用统计和错误指纹，不含用户或实例标识、IP、题目内容、AI 对话或错误原文；存量实例升级后默认不外发，管理员登录时可从提示横幅查看协议后开启。「设置 → 用户管理 → 隐私与遥测」可关闭外发、开启本地记录（只保存在本机，供排查问题）、改为自建收集服务，并查看本实例收集了什么；设置 `TELEMETRY_DISABLED=true` 强制全部关闭。协议升级后管理员需重新同意，期间暂停外发，普通用户不受影响。详见[隐私说明](doc/PRIVACY.md)与[设计](doc/TELEMETRY_DESIGN.md)。
 - **🐞 调试日志**：遇到问题时，管理员在「设置 → 用户管理」中打开调试模式，复现问题后导出调试日志（JSON）发给作者。调试模式下记录包括 debug 级别在内的全部服务端日志和前端错误，导出时自动去除 API Key、密码和令牌；日志只保存在内存中，24 小时后自动关闭，服务重启后清空。
 - **🔌 Openclaw 集成**：外部 Openclaw agent 可通过 `POST /api/openclaw/batch-upload` 批量上传题目图片，配置见[环境变量](#-环境变量)。
+- **🧩 MCP 服务**：外部 agent 可通过 MCP Streamable HTTP 端点 `POST /api/mcp` 读写错题本、错题、知识点与复习数据；配置 `MCP_API_KEY` 与 `MCP_USER_EMAIL` 后启用，工具与接入方式见 [MCP 服务](doc/wiki/MCP-Server.md)。
 
 ## 🚀 快速开始
 
 按上手难度从易到难排列。全新安装没有默认账号：首次启动时会生成一次性初始化链接，打开后设置管理员邮箱和密码，再进入安装向导配置 AI 渠道、创建第一个错题本。桌面版、安卓单机版会自动打开该链接；Docker 用 `docker logs wrong-notebook 2>&1 | grep initialize` 查看；npm、源码运行打印在终端里。链接中的主机为 `localhost` 时，从其他设备访问需换成服务器地址（或设置 `NEXTAUTH_URL`）。尚未创建管理员时，登录页也会显示这些说明。
 
-### 方式一：安装包（Windows / macOS / Linux / 飞牛OS / 安卓 / npm）
+### 方式一：安装包（Windows / macOS / Linux / 飞牛OS / 群晖 / 威联通 / 安卓 / npm）
 
 从[下载页](https://wrong-notebook.margrop.net/download/)（自动识别系统与架构）或 [Releases](https://github.com/margrop/wrong-notebook/releases) 下载对应安装包，安装后直接打开：
 
@@ -203,6 +205,8 @@
 | macOS | `WrongNotebook-Mac-<版本>-arm64.dmg`（Apple 芯片）、`WrongNotebook-Mac-<版本>-x64.dmg`（Intel） |
 | Linux | `WrongNotebook-Linux-<版本>-<架构>.AppImage`、`.deb` |
 | 飞牛OS | `WrongNotebook-FnOS-<版本>-x86.fpk`、`WrongNotebook-FnOS-<版本>-arm.fpk` |
+| 群晖 DSM | `WrongNotebook-Synology-<版本>-x86_64.spk` / `-arm64.spk`（套件中心手动安装，内置镜像的 Docker 套件，需 Container Manager） |
+| 威联通 QTS | `WrongNotebook-QNAP-<版本>-x86_64.qpkg` / `-arm64.qpkg`（App Center 手动安装，内置镜像的 Docker 套件，需 Container Station） |
 | 安卓手机 / 平板（单机版） | `WrongNotebook-Android-Phone-<版本>.apk`（竖屏）、`WrongNotebook-Android-Tablet-<版本>.apk`（横竖屏自动旋转） |
 | 安卓手机 / 平板（客户端） | `WrongNotebook-Android-Client-Phone-<版本>.apk`、`WrongNotebook-Android-Client-Tablet-<版本>.apk` |
 
@@ -257,6 +261,8 @@ wrong-notebook --port 3000
 
    或下载仓库中的 [`docker-compose.yml`](docker-compose.yml) 放到当前目录，修改 `NEXTAUTH_SECRET`（及 `NEXTAUTH_URL`）后执行 `docker compose up -d`。
 
+   未设置 `NEXTAUTH_SECRET` 时，容器首次启动会生成密钥并保存到数据目录的 `.nextauth_secret`，之后保持不变。
+
 3. **登录**：访问 `http://你的IP或域名:3000`。
 
 4. **升级**：拉取新镜像并重建容器，数据保留在挂载目录中，启动时执行数据库迁移并增量补齐内置语文标签，保留已有标签 ID 和题目关联。升级前建议先备份 `data/` 目录。
@@ -267,6 +273,57 @@ wrong-notebook --port 3000
    ```
 
 数据保存在挂载的 `data/`（SQLite 数据库）和 `config/`（网页中保存的 AI 配置、云端语音缓存等）目录。设置页「关于」和 `/api/health` 显示当前运行的版本。HTTPS 部署见 [HTTPS 配置指南](doc/HTTPS_SETUP.md) 和 `docker-compose.https.yml`。
+
+#### Unraid（Docker 界面，不使用 docker-compose.yml）
+
+在 Unraid 的 **Docker** 页新建容器即可，不需要 Compose 文件：
+
+| 字段 | 值 |
+| --- | --- |
+| Repository | `ghcr.io/margrop/wrong-notebook:<精确版本>`（如 `2026.11.6`，也可用 `latest`） |
+| Network / Port | bridge；容器端口 `3000`，主机端口自定（如 `3000`） |
+| Path 1 (host → container) | `/mnt/user/appdata/wrong-notebook/data` → `/app/data`（数据库） |
+| Path 2 (host → container) | `/mnt/user/appdata/wrong-notebook/config` → `/app/config`（AI 配置、提示词等） |
+| Variable 1 | `NEXTAUTH_SECRET`：`openssl rand -base64 32` 的输出 |
+| Variable 2 | `NEXTAUTH_URL=http://你的IP或域名:3000` |
+| Variable 3 | `PRESERVE_EXISTING_DATA=true` |
+| Restart policy | `unless-stopped` |
+
+主机目录不存在时 Unraid 会自动创建。首次启动后，在容器日志中查找 `initialize` 链接（也可读取 `/mnt/user/appdata/wrong-notebook/config/setup-token`），打开设置管理员邮箱和密码。
+
+**升级**：Docker 页 → 点击容器 → **Force update**，会按当前 Repository 标签重新拉取并重建容器。使用精确版本时，先把 Repository 标签改成新版本再 Force update；`latest` 直接 Force update 即可。启动时会自动执行数据库迁移，`data`、`config` 目录中的数据保留。升级前先按 [数据备份与恢复](doc/wiki/Backup-and-Restore.md) 停止容器并归档整个 appdata 目录，或使用 Unraid 的 Appdata Backup 插件。
+
+**回退**：数据库迁移后不一定兼容旧镜像。回退时先停止容器，恢复升级前的 `data/`、`config/`，再把 Repository 标签改回旧版本并启动。
+
+#### 群晖 DSM（Container Manager）
+
+DSM 7.2 及以上使用 **Container Manager**（旧版为 Docker 套件）。建议数据目录为 `/volume1/docker/wrong-notebook/{data,config}`；先在 File Station 或 SSH 中创建，其他存储卷路径相应替换。
+
+**套件安装（推荐）**：先安装 Container Manager，然后在套件中心 →「手动安装」选择 `WrongNotebook-Synology-<版本>-x86_64.spk`（Intel / AMD 机型）或 `-arm64.spk`（64 位 ARM 机型）。需要 DSM 7.2.1 及以上。套件在 Container Manager 中创建项目 `wrong-notebook`，加载套件内置的同版本镜像（安装时无需联网拉取），把主机端口 `39300` 映射到容器 `3000`，数据放在套件数据目录 `/volumeN/@appdata/wrongnotebook`；从 DSM 主菜单的「错题本」图标或 `http://NAS地址:39300` 进入应用，首次启动按页面提示设置管理员。升级套件会按新镜像重建容器并保留数据，卸载套件保留数据目录。
+
+手动容器方式：
+
+1. **拉取映像**：Container Manager → **映像** → 新增，从注册表搜索 `margrop/wrong-notebook`，或从 URL 添加 `ghcr.io/margrop/wrong-notebook:<精确版本>`。
+2. **新建容器**：**容器** → 新增 → 从映像创建。容器名 `wrong-notebook`；端口本地 `3000` → 容器 `3000`；卷映射 `/volume1/docker/wrong-notebook/data` → `/app/data`、`.../config` → `/app/config`（读写）；环境变量 `NEXTAUTH_SECRET`、`NEXTAUTH_URL`、`PRESERVE_EXISTING_DATA=true`；开启自动重启。
+3. **初始化**：启动后在容器详情日志中查找 `initialize` 链接（令牌也在 `/volume1/docker/wrong-notebook/config/setup-token`），设置管理员邮箱和密码。
+4. **升级**：先按[数据备份与恢复](doc/wiki/Backup-and-Restore.md)停止容器并归档整个目录，或在 Hyper Backup 中把该目录加入备份。然后在映像页拉取新版本标签，停止旧容器，用新映像和相同的卷、端口、环境变量重建；启动时自动迁移数据库，数据保留。使用 `latest` 时拉取最新映像后重建即可。
+5. **回退**：数据库迁移后不一定兼容旧镜像。停止容器，恢复升级前的 `data/`、`config/`，再按旧版本映像重建。
+
+#### 威联通 QTS（Container Station）
+
+使用 **Container Station**。建议数据目录为 `/share/Container/wrong-notebook/{data,config}`；Container Station 的默认共享文件夹是 `Container`，自定义存储位置时相应替换。
+
+**套件安装（推荐）**：先安装 Container Station，然后在 App Center →「手动安装」选择 `WrongNotebook-QNAP-<版本>-x86_64.qpkg`（Intel / AMD 机型）或 `-arm64.qpkg`（64 位 ARM 机型）。套件加载内置的同版本镜像（无需联网拉取）、生成 `NEXTAUTH_SECRET`、把主机端口 `39300` 映射到容器 `3000`，数据放在 `/share/Container/wrong-notebook/{data,config}`；App Center 的打开链接进入应用，首次启动按页面提示设置管理员。升级套件会按新镜像重建容器并保留数据，卸载套件保留数据目录。
+
+手动容器方式：
+
+1. **拉取映像**：在映像页拉取 `ghcr.io/margrop/wrong-notebook:<精确版本>`；也可通过 SSH 执行 `docker pull`，或使用 **应用程序**（Compose）方式。
+2. **新建容器**：容器 → 创建，选择已拉取的映像。容器名 `wrong-notebook`；端口主机 `3000` → 容器 `3000`；卷映射 `/share/Container/wrong-notebook/data` → `/app/data`、`.../config` → `/app/config`；环境变量 `NEXTAUTH_SECRET`、`NEXTAUTH_URL`、`PRESERVE_EXISTING_DATA=true`；重启策略 `unless-stopped`。
+3. **初始化**：启动后在容器日志中查找 `initialize` 链接（令牌在 `/share/Container/wrong-notebook/config/setup-token`）。
+4. **升级**：先停止容器并归档数据目录，或在 Hybrid Backup Sync 中把该目录加入备份。拉取新版本映像后，用相同卷、端口和环境变量重建容器；使用 **应用程序** 时，修改 YAML 中的映像标签后重新应用。启动时自动迁移数据库。
+5. **回退**：数据库迁移后不一定兼容旧镜像。停止容器，恢复升级前的 `data/`、`config/`，再按旧版本映像重建。
+
+
 
 > 上游项目的镜像 `ghcr.io/wttwins/wrong-notebook` **不包含**本仓库新增的功能，请使用 `ghcr.io/margrop/wrong-notebook`。
 
@@ -316,9 +373,14 @@ AI 配置在网页中修改，保存后立即生效，无需重启：
 1. 管理员点击首页右上角的设置图标，打开「AI 设置」。
 2. 选择提供商，填写 API Key、Base URL（或 Endpoint）、模型（或部署名称）。提供商下方附有官方接入文档，「API Key」「模型名称」旁附有获取说明和模型列表链接。
 3. 点击「测试连接」检查文本与图片识别能力，失败时会显示服务商的原始报错；保存后配置写入 `config/app-config.json`，优先于 `.env`。
-4. 同一页下方的「语音讲解」切换浏览器语音或云端语音；「提示词」页可自定义识别和举一反三的提示词模板。
+4. 同一页下方的「语音讲解」切换浏览器语音或云端语音；「提示词」页可自定义识别、解题和举一反三的提示词模板。
+5. 「渠道分工」可让图片识别与文本分析分别使用不同渠道，并指定一个备用渠道：主渠道额度用完或登录失效时自动改用备用渠道，无需再到设置里换渠道。
 
-AI 设置、提示词、连接测试和模型列表只对管理员开放；普通用户在「设置 → 通用」中只能修改自己的偏好。
+**提示词值得定制。** 默认提示词面向通用场景；家长按孩子的年级、薄弱点和学习习惯改写角色、语气和分析步骤，效果通常明显更好。在「提示词」页点「复制」取走默认模板，改好后点「用剪贴板替换」覆盖并保存；「恢复默认」可随时退回。请保留模板中的 `{{变量}}`，它们会被替换为每道题的数据，页面会提示遗漏的变量。应用仍会补充输出协议、语言、年级、知识点和生成题型规则，旧模板遗漏变量时也不例外。
+
+**渠道分工能省钱。** 拍照识别需要能看图的模型，解题、判分、举一反三等纯文字任务用便宜的文字模型即可。在「渠道分工」中分别选择「图片识别渠道」和「文本分析渠道」，两者可各自填自己的 API Key；再选一个「备用渠道」，例如让付费渠道给免费 MiniMax Code 积分兜底——积分用完后自动接手，不用手动切换。用量按实际使用的渠道分别记录。
+
+**提示词、渠道分工都属于实例级设置。** AI 设置、提示词、连接测试和模型列表只对管理员开放；普通用户在「设置 → 通用」中只能修改自己的偏好。
 
 计算题核对等价答案，证明和说明理由题检查必要论证；不要求过程且结论能直接比对时才本地判对，其他情况交给 AI 判定。
 
@@ -415,6 +477,7 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | `ALLOW_REGISTRATION` | 是否开放注册，默认 `false` |
 | `AI_DAILY_LIMIT` | 普通用户每天的 AI 次数，默认 `0`（不限制） |
 | `AI_CONCURRENCY_LIMIT` | 同一模型同时进行的 AI 调用上限，默认 `5`，超出的排队 |
+| `FIGURE_REVIEW` | AI 配图比对校正开关，默认 `false`；重绘后多一次 AI 调用 |
 
 <details>
 <summary><strong>完整环境变量列表</strong></summary>
@@ -434,6 +497,7 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | `ALLOW_REGISTRATION` | 允许注册 | `false` | 为 `true` 时默认开放注册；管理员在「设置 → 用户管理」中保存的开关优先 |
 | `AI_DAILY_LIMIT` | 每人每日 AI 次数 | `0`（不限制） | 普通用户每天可发起的 AI 操作次数，管理员不受限制；「设置 → 用户管理」中保存的值优先 |
 | `AI_CONCURRENCY_LIMIT` | 同一模型 AI 并发上限 | `5` | 同一渠道、地址和模型同时进行的 AI 调用数量（1～100），超出的调用排队等待，避免服务商返回 429；「设置 → 用户管理」中保存的值优先 |
+| `FIGURE_REVIEW` | AI 配图比对校正 | `false` | 为 `true` 时重绘配图后把原图与结果并排交给 AI 比对并修正差异；每张配图多一次带图片的 AI 调用，耗时更长。管理员在「设置 → 通用」中保存的开关优先 |
 | `TTS_MODE` | 动画语音讲解的朗读方式 | `browser` | `browser` 为浏览器本地语音；`minimax`、`qwen`、`glm`、`stepfun`、`volcengine`、`volcengine-agent`、`openai` 为云端语音，复用对应渠道的 API Key（豆包语音使用 `VOLCENGINE_TTS_API_KEY`，OpenAI 使用当前激活的 OpenAI 配置）。「设置 → AI 设置 → 语音讲解」中保存的值优先 |
 
 **AI 配置**（网页中保存的配置优先于环境变量）
@@ -480,6 +544,13 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | `OPENCLAW_AUTH_MODE` | 认证方式 | `credentials` | `credentials`（用户名密码）或 `apikey` |
 | `OPENCLAW_INTEGRATION_API_KEY` | 本系统 API 密钥 | 无 | 仅 `apikey` 模式需要，供 Openclaw 调用本系统，可用 `openssl rand -hex 32` 生成 |
 
+**MCP 服务**（可选）
+
+| 环境变量 | 描述 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `MCP_API_KEY` | MCP 集成密钥 | 无 | 外部 agent 通过 `Authorization: Bearer` 或 `x-api-key` 提交；可用 `openssl rand -hex 32` 生成 |
+| `MCP_USER_EMAIL` | MCP 目标账号 | 无 | 固定该账号的错题数据；填邮箱（也可填用户名），账号须启用 |
+
 新增环境变量时需同步更新 `.env.example`。
 
 </details>
@@ -491,7 +562,7 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 可将应用添加到手机或平板主屏幕，全屏运行、点击图标直接打开，平板可横屏使用。
 
 - **iPhone / iPad (Safari)**：点击底部 **分享** 按钮 → 选择 **"添加到主屏幕"**。
-- **Android (Chrome)**：点击右上角 **菜单** → 选择 **"添加到主屏幕"** 或 **"安装应用"**；也可以安装[安卓 App](#方式一安装包windows--macos--linux--飞牛os--安卓--npm)。
+- **Android (Chrome)**：点击右上角 **菜单** → 选择 **"添加到主屏幕"** 或 **"安装应用"**；也可以安装[安卓 App](#方式一安装包windows--macos--linux--飞牛os--群晖--威联通--安卓--npm)。
 
 通过 HTTPS（或 `localhost`）访问时会启用 Service Worker：缓存页面脚本、样式和图标以加快打开速度，断网时显示离线提示页。题目、统计等数据始终从服务器读取，不做离线缓存。
 
@@ -534,7 +605,6 @@ E2E 启动器会在系统临时目录复制应用和依赖、执行正式迁移�
 - **重置密码**：`node scripts/reset-password.js <邮箱> <新密码>`
 - **恢复默认管理员角色**：`node scripts/seed-admin.js`（只为已有的 `admin@localhost` 恢复管理员角色并启用；没有任何管理员时，重启服务会在日志中打印新的初始化链接）
 - **重建系统知识点**：`npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/rebuild-system-tags.ts`（保留自定义标签和题目关联；生产环境操作前请先备份）
-- **补齐语文知识点**：`npx ts-node --compiler-options '{"module":"CommonJS"}' scripts/seed-chinese-primary.ts`（与主课程数据共用来源，只增量补齐内置语文体系及更新课程排序，保留标签 ID、题目关联、自定义标签和其他体系；可重复执行）。Docker 和安装包启动时自动执行编译后的 `dist-scripts/scripts/seed-chinese-primary.js`，旧安装无需重建全部标签。
 - **导入人教版课标知识点**：与「设置 → 用户管理 → 人教版课标知识点」相同的命令行方式。先下载 [topics.json](https://raw.githubusercontent.com/xiaoyang111222/cn-math-taxonomy/HEAD/data/topics.json) 到 `scripts/data/cn-math-taxonomy-topics.json`，再执行 `npx tsx scripts/seed-cnm-tags.ts`（也可把文件路径作为参数传入；作为独立的 `cnm` 标签体系增量导入，不影响内置体系和已有题目，可重复执行）。
 - **检查数据库**：`node scripts/check-db-users.js`、`node scripts/check-db-data.js`
 
@@ -544,7 +614,7 @@ E2E 启动器会在系统临时目录复制应用和依赖、执行正式迁移�
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [INSTALL_PACKAGES.md](doc/INSTALL_PACKAGES.md) | npm、桌面版、飞牛OS、安卓安装包与构建 |
+| [INSTALL_PACKAGES.md](doc/INSTALL_PACKAGES.md) | npm、桌面版、飞牛OS、群晖/威联通套件、安卓安装包与构建 |
 | [HTTPS_SETUP.md](doc/HTTPS_SETUP.md) | HTTPS 配置（屏幕截图需要） |
 | [TIME_ZONE.md](doc/TIME_ZONE.md) | 应用时区 |
 | [LOGGING_GUIDE.md](doc/LOGGING_GUIDE.md) | 日志 |

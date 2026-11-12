@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     generateAnalyzeRequest, generateSimilarQuestionRequest, generateReanswerRequest,
     generateGradeRecognitionRequest, generateGradingRequest, generateMasteryRequest,
-    generateTagSuggestRequest, generateGeogebraRequest, generateFigureRequest,
+    generateTagSuggestRequest, generateGeogebraRequest, generateFigureRequest, generateFigureFixRequest, generateFigureReviewRequest,
     generateLatexFixRequest, generateSvgAnimationRequest, generateSvgNarrationRequest,
 } from '@/lib/ai/prompt-requests';
 import {
@@ -25,6 +25,8 @@ const requests: Array<[string, () => PromptRequest]> = [
     ['标签', () => generateTagSuggestRequest({ questionText: material, answerText: material, analysis: material, wrongAnswerText: material, mistakeAnalysis: material, subject: material, allowedTags: [material] })],
     ['GeoGebra', () => generateGeogebraRequest(material, material, material, material)],
     ['配图', () => generateFigureRequest(material)],
+    ['配图修正', () => generateFigureFixRequest(svg, material)],
+    ['配图比对', () => generateFigureReviewRequest(material, svg, { width: 800, height: 468, cropped: true })!],
     ['公式修复', () => generateLatexFixRequest({ analysis: { text: material, issues: [material] } })],
     ['动画', () => generateSvgAnimationRequest(material, material, material, svg)],
     ['旁白', () => generateSvgNarrationRequest(material, material, material, svg)],
@@ -53,12 +55,33 @@ describe('AI 请求的材料边界', () => {
         expect(JSON.parse(request.user).data.difficulty).toBe('medium');
     });
 
+    it('配图画布只接受合理范围内的整数尺寸', () => {
+        expect(generateFigureRequest('如图', { width: 800, height: 468, cropped: true }).system).toContain('viewBox="0 0 800 468"');
+        const forged = { width: 800.5, height: 468, cropped: true };
+        expect(generateFigureRequest('如图', forged).system).not.toContain('viewBox="0 0 800');
+        expect(generateFigureRequest('如图', { width: 99999, height: 468, cropped: false }).system).not.toContain('99999');
+    });
+
+    it('配图比对要求逐个对照箭头，画布无效时不生成请求', () => {
+        const request = generateFigureReviewRequest('如图', '<svg/>', { width: 800, height: 468, cropped: true })!;
+        expect(request.system).toContain('逐个对照箭头');
+        expect(request.system).toContain('viewBox 保持 "0 0 800 468" 不变');
+        expect(generateFigureReviewRequest('如图', '<svg/>', { width: 0, height: 468, cropped: true })).toBeNull();
+    });
+
     it('伪造的年级也不能进入系统规则', () => {
         const request = generateReanswerRequest('zh', '题目', '数学', {}, '小学三年级，' + material);
         expect(request.system).not.toContain(material);
         expect(JSON.parse(request.user).data.gradeSemester).toContain(material);
     });
 
+    it('识别请求把 allowCustom 传给提示词，按自行命名规则选择知识点', () => {
+        const request = generateAnalyzeRequest('zh', null, '数学', {
+            candidateTags: { subjectName: '数学', tags: [], allowCustom: true },
+        });
+        expect(request.system).toContain('原样复用');
+        expect(request.system).not.toContain('必须从上述列表中选择精确匹配的标签');
+    });
 
 });
 
@@ -152,5 +175,25 @@ describe('应用必守规则', () => {
         const request = generateAnalyzeRequest('zh', null, null, {}, null, '   \n  ');
         expect(JSON.parse(request.user).data.referenceText).toBeUndefined();
         expect(request.system).not.toContain('【参考文字');
+    });
+});
+
+describe('自定义解题提示词模板', () => {
+    it('重新解题使用配置的模板并替换其中的变量', () => {
+        const request = generateReanswerRequest('zh', '1+1=?', '数学', {
+            customTemplate: '你是耐心的小学老师。\n题目：{{question_text}}\n学科：{{subject_hint}}',
+        });
+
+        expect(request.system).toContain('你是耐心的小学老师。');
+        expect(request.system).toContain('题目：');
+        expect(request.system).not.toContain('{{question_text}}');
+        expect(request.system).not.toContain('{{subject_hint}}');
+        // 自定义模板之外仍补充统一输出协议
+        for (const tag of QUESTION_OUTPUT_TAGS.reanswer) expect(request.system).toContain('<' + tag + '>');
+    });
+
+    it('没有自定义模板时使用默认解题模板', () => {
+        const request = generateReanswerRequest('zh', '1+1=?', '数学');
+        expect(request.system).toContain('【角色与核心任务');
     });
 });

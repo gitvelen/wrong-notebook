@@ -55,6 +55,7 @@ export interface ImportTaskSummary {
     error: string | null;
     errorItemId: string | null;
     errorItemShortId: string | null;
+    errorItemSeqNo: number | null;
     notebookName: string | null;
     duplicate: boolean;
     hasResult: boolean;
@@ -70,6 +71,7 @@ export interface ImportTaskDetail extends ImportTaskSummary {
     result: ParsedQuestion | null;
     imageData: string | null;
     paperLevel: string | null;
+    source: string | null;
 }
 
 export interface ImportTaskListResponse {

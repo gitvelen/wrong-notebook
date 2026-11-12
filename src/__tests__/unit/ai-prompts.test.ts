@@ -17,6 +17,8 @@ import {
     DEFAULT_ANALYZE_TEMPLATE,
     DEFAULT_SIMILAR_TEMPLATE,
     DEFAULT_REANSWER_TEMPLATE,
+    generateQuestionSplitPrompt,
+    generateTextFixPrompt,
 } from '@/lib/ai/prompts';
 
 describe('AI Prompts', () => {
@@ -39,12 +41,13 @@ describe('AI Prompts', () => {
     });
 
     describe('generateAnalyzePrompt', () => {
-        it('要求判断是否有配图并用 SVG 重绘', () => {
+        it('要求判断是否有配图并给出配图位置，不在识别时画 SVG', () => {
             const prompt = generateAnalyzePrompt('zh', 7, '数学');
             expect(prompt).toContain('<has_figure>');
-            expect(prompt).toContain('<figure_svg>');
+            expect(prompt).toContain('<figure_box>');
+            expect(prompt).toContain('归一化到 0~1000');
+            expect(prompt).not.toContain('<figure_svg>');
             expect(prompt).toContain('14 个 XML 标签');
-            expect(prompt).toContain('严禁使用 <image>、<script>');
         });
 
         it('单独重绘配图的提示词带上题干用于核对标注', () => {
@@ -52,6 +55,22 @@ describe('AI Prompts', () => {
             expect(prompt).toContain('如图，AB=3');
             expect(prompt).toContain('<figure_svg>');
             expect(generateFigurePrompt(null)).toContain('（无题目文字）');
+        });
+
+        it('重绘配图时先列元素清单，并强调箭头方向与连线', () => {
+            const prompt = generateFigurePrompt('如图');
+            expect(prompt.indexOf('<figure_outline>')).toBeGreaterThan(-1);
+            expect(prompt.indexOf('<figure_outline>')).toBeLessThan(prompt.indexOf('<figure_svg>'));
+            expect(prompt).toContain('箭头方向必须与原图一致');
+            expect(prompt).toContain('共用同一端点坐标');
+            expect(prompt).toContain('按原图比例与相对位置绘制');
+        });
+
+        it('已知画布尺寸时要求 viewBox 与图片像素一致', () => {
+            const prompt = generateFigurePrompt('如图', { width: 800, height: 468, cropped: true });
+            expect(prompt).toContain('viewBox="0 0 800 468"');
+            expect(prompt).toContain('已从题目图片中裁剪出配图区域');
+            expect(generateFigurePrompt('如图', { width: 800, height: 468, cropped: false })).not.toContain('裁剪');
         });
 
         it('提供错题本候选知识点时只列出这些标签，不再按学科、年级取标签', () => {
@@ -62,6 +81,16 @@ describe('AI Prompts', () => {
             expect(prompt).toContain('**数学标签:**');
             expect(prompt).toContain('"鸡兔同笼", "植树问题"');
             expect(prompt).not.toContain('不应出现的年级标签');
+        });
+
+        it('该学段没有课程库时要求复用已有标签，没有吻合的再自行命名', () => {
+            const prompt = generateAnalyzePrompt('zh', null, '数学', {
+                candidateTags: { subjectName: '数学', tags: ['极限的定义'], allowCustom: true },
+            });
+            expect(prompt).toContain('**数学知识点:**');
+            expect(prompt).toContain('"极限的定义"');
+            expect(prompt).toContain('原样复用');
+            expect(prompt).not.toContain('必须从上述列表中选择精确匹配的标签');
         });
 
         it('应该生成中文提示词', () => {
@@ -79,6 +108,16 @@ describe('AI Prompts', () => {
         it('应该包含学科提示（如果提供）', () => {
             const prompt = generateAnalyzePrompt('zh', null, '数学');
             expect(prompt).toContain('数学');
+        });
+        it('未指定学科时列出语文等全部学科候选标签', () => {
+            const prompt = generateAnalyzePrompt('zh', null, null, {
+                prefetchedChineseTags: ['声母', '韵母'],
+                prefetchedHistoryTags: ['辛亥革命'],
+            });
+            expect(prompt).toContain('**语文标签 (Chinese Tags):**');
+            expect(prompt).toContain('"声母", "韵母"');
+            expect(prompt).toContain('**历史标签 (History Tags):**');
+            expect(prompt).toContain('"辛亥革命"');
         });
 
         it('应该根据年级过滤数学标签（初一）', () => {
@@ -134,6 +173,47 @@ describe('AI Prompts', () => {
             expect(prompt).toContain('【过滤草稿与思考过程规则】');
             expect(prompt).toContain('必须过滤掉图片中人的思考过程、手写草稿');
             expect(prompt).not.toContain('草稿或错误答案，请尽量按原样摘录');
+        });
+    });
+
+    describe('语文题干转写规则', () => {
+        const keyPhrases = [
+            '拼音必须带声调符号原样转写',
+            '不得用数字声调',
+            '每个空用「（  ）」原样保留',
+            '田字格位置按原样保留为空',
+            '带拼音注音的汉字',
+        ];
+
+        it('语文学科的识别提示词包含拼音、填空与注音规则', () => {
+            const prompt = generateAnalyzePrompt('zh', null, '语文');
+            for (const phrase of keyPhrases) expect(prompt).toContain(phrase);
+        });
+
+        it('学科未知（未指定错题本）时识别提示词也包含规则', () => {
+            const prompt = generateAnalyzePrompt('zh', null, null);
+            for (const phrase of keyPhrases) expect(prompt).toContain(phrase);
+        });
+
+        it('非语文学科但参考文字含拼音时也附带这些规则', () => {
+            const prompt = generateAnalyzePrompt('zh', null, '数学', undefined, null, '看拼音写词语：zhāo（朝）');
+            for (const phrase of keyPhrases) expect(prompt).toContain(phrase);
+        });
+
+        it('不含语文或拼音的识别提示词不带这些规则', () => {
+            const prompt = generateAnalyzePrompt('zh', null, '数学');
+            expect(prompt).not.toContain('【语文题干转写规则】');
+        });
+
+        it('图片分题转写题干时附带拼音与填空规则', () => {
+            const prompt = generateQuestionSplitPrompt('image');
+            for (const phrase of keyPhrases) expect(prompt).toContain(phrase);
+        });
+
+        it('文字修正遇到含拼音的题干时附带规则，普通题目不带', () => {
+            const withPinyin = generateTextFixPrompt('看拼音写词语：ma3（  ）');
+            for (const phrase of keyPhrases) expect(withPinyin).toContain(phrase);
+            expect(generateTextFixPrompt('计算 1+1')).not.toContain('【语文题干转写规则】');
         });
     });
 
@@ -201,6 +281,15 @@ describe('AI Prompts', () => {
             expect(withTags).toContain('"鸡兔同笼"');
             expect(generateReanswerPrompt('zh', '鸡兔同笼', '数学')).not.toContain('只能从以下');
             expect(generateReanswerPrompt('zh', '鸡兔同笼', '数学')).not.toContain('{{knowledge_points_rule}}');
+        });
+
+        it('该学段没有课程库时允许自行命名，但仍要求复用已有标签', () => {
+            const prompt = generateReanswerPrompt('zh', '求极限', '数学', {
+                candidateTags: { subjectName: '数学', tags: ['极限的定义'], allowCustom: true },
+            });
+            expect(prompt).toContain('本学段没有固定知识点清单');
+            expect(prompt).toContain('"极限的定义"');
+            expect(prompt).not.toContain('只能从以下数学知识点中选择');
         });
 
         const questionText = '求解方程 2x + 3 = 7';
@@ -527,6 +616,32 @@ describe('知识点重新标注提示词', () => {
         expect(prompt).toContain('single_choice');
         expect(prompt).toContain('questionType');
         expect(prompt).toContain('"questionType": "single_choice"');
+    });
+
+    it('允许自行命名时改为复用已有标签、没有吻合的再命名', () => {
+        const prompt = generateTagSuggestPrompt({
+            questionText: '求二元函数 f(x,y)=x²+y² 在约束 x+y=1 下的极值',
+            subject: '数学',
+            allowedTags: ['极限的定义'],
+            allowCustom: true,
+        });
+
+        expect(prompt).toContain('选出现有知识点或自行命名');
+        expect(prompt).toContain('"极限的定义"');
+        expect(prompt).toContain('必须原样复用');
+        expect(prompt).not.toContain('只能从【可选知识点】中选择');
+    });
+
+    it('允许自行命名且没有已有标签时提示可以自行命名', () => {
+        const prompt = generateTagSuggestPrompt({ questionText: '求极限', subject: '数学', allowedTags: [], allowCustom: true });
+        expect(prompt).toContain('（暂无，可自行命名）');
+        expect(prompt).not.toContain('{{');
+    });
+
+    it('不允许自行命名时仍然只从清单中选择', () => {
+        const prompt = generateTagSuggestPrompt({ questionText: '1+1=?', subject: '数学', allowedTags: ['加法'] });
+        expect(prompt).toContain('只能从【可选知识点】中选择');
+        expect(prompt).not.toContain('必须原样复用');
     });
 });
 

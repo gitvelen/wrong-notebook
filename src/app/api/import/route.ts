@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authOptions } from "@/lib/auth";
 import { getServerSession } from "next-auth";
+import { gunzipSync } from "node:zlib";
 import { unauthorized, internalError, badRequest, forbidden, taskAlreadyRunning } from "@/lib/api-errors";
 import { createLogger } from "@/lib/logger";
 import { findRunningTask, reserveBackgroundTask } from "@/lib/background-tasks";
 import { importSpeeches } from "@/lib/tts/speech-cache";
 import { parseBackupFile } from "@/lib/backup/format";
+import { MAX_BACKUP_IMPORT_BYTES } from "@/lib/backup/limits";
 import { normalizeBackupForImport } from "@/lib/backup/import-parser";
 import { importBackupData, scheduleImportMasteryEvaluation } from "@/lib/backup/import-writer";
 import { rowsBucket } from "@/lib/telemetry/schema";
@@ -31,6 +33,8 @@ export async function POST(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const importAll = searchParams.get('all') === 'true';
+    // 合并其他账号的备份：非本人邮箱时也允许导入，数据全部归到当前账号，偏好设置不还原
+    const merge = searchParams.get('merge') === 'true';
 
     // 只有管理员可以导入全部数据
     if (importAll && session.user.role !== 'admin') {
@@ -39,19 +43,26 @@ export async function POST(req: Request) {
 
     try {
         const contentLength = req.headers.get('content-length');
-        if (contentLength && parseInt(contentLength, 10) > 50 * 1024 * 1024) {
-            return badRequest("Request body too large (max 50MB)");
+        // 网页导出的备份为 gzip 压缩的 JSON，上传时按压缩后体积判断；解压后再校验一次，避免压缩炸弹
+        if (contentLength && parseInt(contentLength, 10) > MAX_BACKUP_IMPORT_BYTES) {
+            return badRequest(`Request body too large (max ${MAX_BACKUP_IMPORT_BYTES / (1024 * 1024)}MB)`);
         }
 
-        const rawBody: unknown = await req.json();
+        const raw = Buffer.from(await req.arrayBuffer());
+        const gzipped = raw.length > 1 && raw[0] === 0x1f && raw[1] === 0x8b;
+        const decompressed = gzipped ? gunzipSync(raw) : raw;
+        if (decompressed.length > MAX_BACKUP_IMPORT_BYTES) {
+            return badRequest(`Import file too large after decompression (max ${MAX_BACKUP_IMPORT_BYTES / (1024 * 1024)}MB)`);
+        }
+        const rawBody: unknown = JSON.parse(decompressed.toString('utf8'));
         const parsed = parseBackupFile(rawBody);
         if (!parsed.success) {
             return badRequest("Invalid import data format");
         }
         const body = parsed.data;
 
-        // 非管理员模式：验证导出数据属于当前用户
-        if (!importAll && body.user.email !== user.email) {
+        // 非管理员模式：导出数据属于当前用户，或显式要求合并其他账号的备份
+        if (!importAll && body.user.email !== user.email && !merge) {
             return badRequest("Import data does not belong to current user");
         }
 
@@ -72,7 +83,7 @@ export async function POST(req: Request) {
             // 使用事务确保数据一致性
             const { stats, masteryIds } = await prisma.$transaction(
                 (tx) => importBackupData({ tx, user, importAll, normalized }),
-                { timeout: 60000 },
+                { timeout: 300000 },
             );
 
             scheduleImportMasteryEvaluation(masteryIds);
@@ -85,7 +96,7 @@ export async function POST(req: Request) {
 
             logger.info({
                 userId: user.id,
-                scope: importAll ? 'all' : 'user',
+                scope: importAll ? 'all' : merge && body.user.email !== user.email ? 'merge' : 'user',
                 ...stats,
             }, 'Data import completed');
 

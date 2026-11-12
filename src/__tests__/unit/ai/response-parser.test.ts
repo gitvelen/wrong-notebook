@@ -119,6 +119,13 @@ describe('parseQuestionResponse', () => {
         expect(result.difficultyStars).toBe(3);
     });
 
+    it('去掉题干开头的顶层题号与点后空格，小数开头保留', () => {
+        const numbered = BASE_XML.replace('求函数 f(x) = x^2 的最小值', '1. 求函数 f(x) = x^2 的最小值');
+        expect(parseQuestionResponse(numbered).questionText).toBe('求函数 f(x) = x^2 的最小值');
+        const decimal = BASE_XML.replace('求函数 f(x) = x^2 的最小值', '1.5 米长的绳子还剩多少？');
+        expect(parseQuestionResponse(decimal).questionText).toBe('1.5 米长的绳子还剩多少？');
+    });
+
     it('缺少必需标签时抛错', () => {
         expect(() => parseQuestionResponse('<question_text>只有题目</question_text>')).toThrow(
             'Missing critical XML tags'
@@ -132,6 +139,10 @@ describe('parseQuestionResponse', () => {
     it('无效 subject 时默认为其他', () => {
         const xml = BASE_XML + '<subject>天文</subject>';
         expect(parseQuestionResponse(xml).subject).toBe('其他');
+    });
+
+    it('识别科学学科', () => {
+        expect(parseQuestionResponse(BASE_XML + '<subject>科学</subject>').subject).toBe('科学');
     });
 
     it('requires_image 非 true 时默认为 false', () => {
@@ -202,5 +213,19 @@ describe('parseTagSuggestion', () => {
     it('questionType 为非法值时返回 null', () => {
         const result = parseTagSuggestion('{"tags": ["加法"], "questionType": "bogus"}', allowed);
         expect(result.questionType).toBeNull();
+    });
+
+    it('不允许自行命名时丢弃清单外的名称', () => {
+        expect(parseTagSuggestion('{"tags": ["加法", "自创名称"]}', allowed).tags).toEqual(['加法']);
+    });
+
+    it('允许自行命名时保留清单外名称，清单内名称排在前面', () => {
+        const result = parseTagSuggestion('{"tags": ["洛必达法则", "加法", "自创名称", "加法"]}', allowed, true);
+        expect(result.tags).toEqual(['加法', '洛必达法则', '自创名称']);
+    });
+
+    it('允许自行命名时也最多五个且忽略空白名称', () => {
+        const result = parseTagSuggestion('{"tags": [" ", "a", "b", "c", "d", "e", "f"]}', [], true);
+        expect(result.tags).toEqual(['a', 'b', 'c', 'd', 'e']);
     });
 });

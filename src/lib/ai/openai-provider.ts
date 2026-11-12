@@ -7,9 +7,7 @@ import { compactUsage, readRequestId } from './completion';
 import { BaseAIProvider } from './base-provider';
 import { createLogger } from '../logger';
 import { AI_OUTPUT_TRUNCATED, withModelOutputLimit } from './truncation';
-import type { FigureResult } from './schema';
-import { parseFigure } from './schema';
-import { extractTag } from './response-parser';
+import { isAIErrorCode, parseErrorCode } from './error-classification';
 
 const logger = createLogger('ai:openai');
 
@@ -160,6 +158,7 @@ export class OpenAIProvider extends BaseAIProvider implements AIService {
                         messages: adaptedMessages,
                         max_tokens: maxTokens,
                     }),
+                    signal: request.signal,
                 });
 
                 if (!res.ok) {
@@ -189,7 +188,7 @@ export class OpenAIProvider extends BaseAIProvider implements AIService {
                 ],
                 max_tokens: maxTokens,
                 ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
-            }).withResponse();
+            }, { signal: request.signal }).withResponse();
             requestId = readRequestId(httpResponse.headers);
             return data;
         }, this.outputLimitModel);
@@ -217,68 +216,14 @@ export class OpenAIProvider extends BaseAIProvider implements AIService {
         };
     }
 
-    /**
-     * 单独重绘配图：与基类不同，不附加额外文字，且图片放在文字前。
-     */
-    async generateFigureSvg(imageBase64: string, mimeType: string, questionText?: string | null): Promise<FigureResult> {
-        const { generateFigureRequest } = await import('./prompt-requests');
-        const prompt = generateFigureRequest(questionText);
-        logger.info({ provider: this.providerName, model: this.model, imageSize: imageBase64.length }, 'Figure SVG Request');
-
-        try {
-            const text = await this.run({
-                task: 'figure',
-                system: prompt.system,
-                user: prompt.user,
-                image: { base64: imageBase64, mimeType },
-            });
-            logger.debug({ rawResponse: text }, 'Figure SVG AI raw response');
-            return parseFigure(extractTag(text, "has_figure"), extractTag(text, "figure_svg"));
-        } catch (error) {
-            logger.error({ error, stack: error instanceof Error ? error.stack : undefined }, 'Error during figure SVG generation');
-            this.handleError(error);
-            throw error;
-        }
-    }
-
     protected handleError(error: unknown): void {
         logger.error({ error }, 'OpenAI error');
-        if (error instanceof Error) {
-            if (error.message === AI_OUTPUT_TRUNCATED || error.message.startsWith('AI_RESPONSE_ERROR:')) {
-                throw error;
-            }
-            const msg = error.message.toLowerCase();
-            if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('connect')) {
-                throw new Error("AI_CONNECTION_FAILED", { cause: error });
-            }
-            // 超时错误 (包括 408 Request Timeout)
-            if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted') || msg.includes('408')) {
-                throw new Error("AI_TIMEOUT_ERROR", { cause: error });
-            }
-            // 配额/频率限制错误
-            if (msg.includes('quota') || msg.includes('额度') || msg.includes('rate limit') || msg.includes('429') || msg.includes('too many')) {
-                throw new Error("AI_QUOTA_EXCEEDED", { cause: error });
-            }
-            // 权限/403 错误
-            if (msg.includes('403') || msg.includes('forbidden') || msg.includes('permission')) {
-                throw new Error("AI_PERMISSION_DENIED", { cause: error });
-            }
-            // 资源不存在/404 错误
-            if (msg.includes('404') || msg.includes('not found') || msg.includes('does not exist')) {
-                throw new Error("AI_NOT_FOUND", { cause: error });
-            }
-            // 服务器错误 (500/502/503/504)
-            if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504') ||
-                msg.includes('无可用') || msg.includes('overloaded') || msg.includes('unavailable')) {
-                throw new Error("AI_SERVICE_UNAVAILABLE", { cause: error });
-            }
-            if (msg.includes('invalid json') || msg.includes('parse')) {
-                throw new Error("AI_RESPONSE_ERROR", { cause: error });
-            }
-            if (msg.includes('api key') || msg.includes('unauthorized') || msg.includes('401')) {
-                throw new Error("AI_AUTH_ERROR", { cause: error });
-            }
+        // 已经归类的错误码原样透传，避免再次归类时丢失（如 AI_AUTH_ERROR 被当成未知错误）
+        if (error instanceof Error && (error.message === AI_OUTPUT_TRUNCATED || isAIErrorCode(error.message))) {
+            throw error;
         }
-        throw new Error("AI_UNKNOWN_ERROR", { cause: error });
+        // 与各渠道共用同一套归类规则：网络中断、空正文、标签缺失等不再落到未知错误
+        const code = parseErrorCode(error);
+        throw new Error(code, { cause: error });
     }
 }

@@ -17,6 +17,7 @@ export const updateErrorItemSchema = z.object({
     geogebraCommands: z.string().nullable().optional(),
     difficultyStars: z.number().int().min(1).max(5).nullable().optional(),
     questionType: z.string().max(200).nullable().optional(),
+    source: z.string().trim().max(200).nullable().optional(),
     figureScale: z.number().optional().refine(
         (value) => value === undefined || isValidFigureScale(value),
         { message: "figureScale must be an integer from 10 to 200" },
@@ -35,6 +36,12 @@ export const updateNotesSchema = z.object({
 /** POST /api/error-items/batch-delete 请求体 */
 export const batchDeleteSchema = z.object({
     ids: z.array(z.string().min(1)).min(1).max(100),
+});
+
+/** POST /api/error-items/batch-move 请求体 */
+export const batchMoveSchema = z.object({
+    ids: z.array(z.string().min(1)).min(1).max(100),
+    subjectId: z.string().min(1),
 });
 
 /** POST /api/error-items/:id/geogebra 请求体（所有字段可选，后端从 DB fallback） */

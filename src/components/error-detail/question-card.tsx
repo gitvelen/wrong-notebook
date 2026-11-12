@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor";
+import { PinyinToolbar } from "@/components/pinyin-toolbar";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { RegenerateFigureButton } from "@/components/regenerate-figure-button";
 import { ReplaceQuestionImageButton } from "@/components/replace-question-image-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { EditButton, SaveCancelButtons, SectionHeader } from "./edit-controls";
+import { CropFromOriginalImageButton } from "./crop-from-original-image-button";
 import { FigureScaleEditor } from "./figure-scale-editor";
 import { QuestionMetadata } from "./question-metadata";
 import { QuestionTags } from "./question-tags";
@@ -35,6 +37,7 @@ export function QuestionCard({ item, educationStage, saveFields, onUpdate, reloa
         save: (questionText) => saveFields({ questionText }),
         logLabel: 'question',
     });
+    const questionTextRef = useRef<HTMLTextAreaElement>(null);
 
     return (
         <Card>
@@ -42,7 +45,8 @@ export function QuestionCard({ item, educationStage, saveFields, onUpdate, reloa
             <CardContent className="space-y-4">
                 {question.editing ? (
                     <div className="space-y-3">
-                        <MarkdownEditor value={question.value} onChange={question.setValue} placeholder="Enter question text..." rows={8} className="w-full font-mono text-sm" />
+                        <MarkdownEditor value={question.value} onChange={question.setValue} textareaRef={questionTextRef} placeholder="Enter question text..." rows={8} className="w-full font-mono text-sm" />
+                        <PinyinToolbar value={question.value} onChange={question.setValue} textareaRef={questionTextRef} subject={item.subject?.name} />
                         <SaveCancelButtons onSave={question.submit} onCancel={question.cancel} />
                     </div>
                 ) : <>
@@ -70,12 +74,19 @@ export function QuestionCard({ item, educationStage, saveFields, onUpdate, reloa
                         onVisibleChange={setShowImage}
                         onEnlarge={onEnlarge}
                         actions={<>
+                            {item.originalImageUrl && (
+                                <CropFromOriginalImageButton
+                                    errorItemId={item.id}
+                                    imageUrl={item.originalImageUrl}
+                                    onDone={(originalImageUrl) => { onUpdate({ originalImageUrl }); setShowImage(true); }}
+                                />
+                            )}
                             <ReplaceQuestionImageButton
                                 errorItemId={item.id}
                                 hasImage={!!item.originalImageUrl}
                                 onDone={(originalImageUrl) => { onUpdate({ originalImageUrl }); setShowImage(true); }}
                             />
-                            {item.originalImageUrl && <RegenerateFigureButton errorItemId={item.id} onDone={onUpdate} />}
+                            {item.originalImageUrl && <RegenerateFigureButton errorItemId={item.id} originalImageUrl={item.originalImageUrl} onDone={onUpdate} />}
                         </>}
                     />
                 </div>

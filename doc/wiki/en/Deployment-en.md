@@ -72,6 +72,108 @@ A healthy endpoint returns `status: "ok"` together with `version` and `revision`
 
 For the default account of a fresh install, see [Quick Start](Quick-Start-en).
 
+## Unraid (Docker UI)
+
+Unraid manages containers from its Docker page, so no `docker-compose.yml` is needed. The app data directory defaults to `/mnt/user/appdata/wrong-notebook`.
+
+On the Docker page click **Add Container**, switch to the advanced view, and fill in:
+
+| Field | Value |
+| --- | --- |
+| Repository | `ghcr.io/margrop/wrong-notebook:<exact-version>` (recommended, e.g. `2026.11.6`) or `latest` |
+| Network | bridge |
+| Port | host port (e.g. `3000`) → container `3000` |
+| Path 1 (host → container) | `/mnt/user/appdata/wrong-notebook/data` → `/app/data` |
+| Path 2 (host → container) | `/mnt/user/appdata/wrong-notebook/config` → `/app/config` |
+| Variable 1 | `NEXTAUTH_SECRET` = the output of `openssl rand -base64 32` |
+| Variable 2 | `NEXTAUTH_URL` = `http://your-ip-or-domain:3000` |
+| Variable 3 | `PRESERVE_EXISTING_DATA` = `true` |
+| Restart policy | `unless-stopped` |
+
+Unraid creates the host directories if they do not exist. Click **Apply** to start, then check:
+
+```bash
+docker logs wrong-notebook 2>&1 | grep initialize
+curl --fail http://localhost:3000/api/health
+```
+
+A fresh start has no default account: open the one-time setup link from the log (the token is also in `/mnt/user/appdata/wrong-notebook/config/setup-token`), set the admin email and password, and continue in the setup wizard. The host in `NEXTAUTH_URL` must match the actual address used to open the app.
+
+### Upgrade
+
+1. Note the current Repository tag, then stop the container and archive the whole appdata directory following [Backup and Restore](Backup-and-Restore-en); you can also add this directory to Unraid's Appdata Backup plugin.
+2. Edit the container on the Docker page:
+   - With `latest`: click **Force update** to pull and recreate.
+   - With an exact version: change the Repository tag to the new version, then click **Apply** (or **Force update**).
+3. Keep the `data` and `config` mappings and `NEXTAUTH_SECRET` unchanged; startup applies database migrations and keeps existing accounts, tags, questions and exam papers.
+4. Check the container log and `/api/health`, then sign in and verify the running version and data.
+
+**Rollback**: stop the container, restore the pre-upgrade `data/` and `config/`, change the Repository tag back to the old version, and start it. Once the database has been migrated, switching back to the old image alone may not be compatible.
+
+## Synology DSM (Container Manager)
+
+DSM 7.2 or later uses Container Manager; the older Docker package works similarly. The suggested data directory is `/volume1/docker/wrong-notebook`; replace the path if your storage volume differs.
+
+**Package install (recommended)**: install Container Manager first, then choose `WrongNotebook-Synology-<version>-x86_64.spk` (Intel / AMD models) or `-arm64.spk` (64-bit ARM models) under Package Center → **Manual Install**. DSM 7.2.1 or later is required. The package creates the `wrong-notebook` project in Container Manager, loads the bundled image of the same version (no image download during installation), maps host port `39300` to container `3000`, and stores data in the package data directory `/volumeN/@appdata/wrongnotebook`; open the app from the **Wrong Notebook** icon in the DSM main menu or at `http://<NAS address>:39300`, and the first start shows the admin setup page. Upgrading the package recreates the container from the new image and keeps data; uninstalling keeps the data directory.
+
+Manual container method:
+
+1. **Prepare directories**: create `docker/wrong-notebook/data` and `config` in File Station, or run over SSH:
+
+   ```bash
+   mkdir -p /volume1/docker/wrong-notebook/data /volume1/docker/wrong-notebook/config
+   ```
+
+2. **Pull the image**: Container Manager → **Image** → Add, search the registry for `margrop/wrong-notebook`, or add `ghcr.io/margrop/wrong-notebook:<exact-version>` (e.g. `2026.11.6`) by URL.
+3. **Create the container**: **Container** → Add → Create from image, then select the image:
+
+   | Field | Value |
+   | --- | --- |
+   | Container name | `wrong-notebook` |
+   | Port | local `3000` → container `3000` |
+   | Volume 1 | `/volume1/docker/wrong-notebook/data` → `/app/data` (read/write) |
+   | Volume 2 | `/volume1/docker/wrong-notebook/config` → `/app/config` (read/write) |
+   | Environment variables | `NEXTAUTH_SECRET`, `NEXTAUTH_URL=http://your-ip-or-domain:3000`, `PRESERVE_EXISTING_DATA=true` |
+   | Auto restart | enabled |
+
+4. **Start and initialize**: after starting, find the `initialize` link under the container details → log (the token is also in `/volume1/docker/wrong-notebook/config/setup-token`), then set the admin email and password. Check `curl --fail http://localhost:3000/api/health`; a healthy response returns `status: "ok"`, `version` and `revision`.
+5. **Upgrade**: stop the container and archive the whole directory following [Backup and Restore](Backup-and-Restore-en), or add `/volume1/docker/wrong-notebook` to a Hyper Backup task. Pull the new image tag, stop the old container, and recreate it from the new image with the same volumes, port and environment variables. Startup applies database migrations and keeps existing accounts, tags, questions and exam papers. With `latest`, pull the latest image and recreate.
+6. **Rollback**: once the database has been migrated, switching back to the old image alone may not be compatible. Stop the container, restore the pre-upgrade `data/` and `config/`, then recreate from the old image.
+
+For access by domain name, configure a reverse proxy under DSM **Control Panel → Login Portal → Advanced → Reverse Proxy**, forward HTTPS to the container port, and set `NEXTAUTH_URL` to the external address.
+
+## QNAP QTS (Container Station)
+
+Use Container Station. The suggested data directory is `/share/Container/wrong-notebook`; Container Station's default shared folder is `Container`, so replace the path if you store data elsewhere.
+
+**Package install (recommended)**: install Container Station first, then choose `WrongNotebook-QNAP-<version>-x86_64.qpkg` (Intel / AMD models) or `-arm64.qpkg` (64-bit ARM models) under App Center → **Manual Install**. The package loads the bundled image of the same version (no image download needed), generates `NEXTAUTH_SECRET`, maps host port `39300` to container `3000`, and stores data at `/share/Container/wrong-notebook/{data,config}`; the App Center open link opens the app, and the first start shows the admin setup page. Upgrading the package recreates the container from the new image and keeps data; uninstalling keeps the data directory.
+
+Manual container method:
+
+1. **Prepare directories**: create them in File Station, or run over SSH:
+
+   ```bash
+   mkdir -p /share/Container/wrong-notebook/data /share/Container/wrong-notebook/config
+   ```
+
+2. **Pull the image**: pull `ghcr.io/margrop/wrong-notebook:<exact-version>` on Container Station's image page; you can also run `docker pull ghcr.io/margrop/wrong-notebook:<exact-version>` over SSH. With an **Application** (Compose), specify the image directly in the YAML `image` field.
+3. **Create the container**: **Container** → Create, then select the pulled image:
+
+   | Field | Value |
+   | --- | --- |
+   | Container name | `wrong-notebook` |
+   | Port | host `3000` → container `3000` |
+   | Volume 1 | `/share/Container/wrong-notebook/data` → `/app/data` |
+   | Volume 2 | `/share/Container/wrong-notebook/config` → `/app/config` |
+   | Environment variables | `NEXTAUTH_SECRET`, `NEXTAUTH_URL=http://your-ip-or-domain:3000`, `PRESERVE_EXISTING_DATA=true` |
+   | Restart policy | `unless-stopped` |
+
+4. **Start and initialize**: after starting, find the `initialize` link in the container log (the token is also in `/share/Container/wrong-notebook/config/setup-token`), then set the admin email and password. Check `curl --fail http://localhost:3000/api/health`.
+5. **Upgrade**: stop the container and archive the data directory following [Backup and Restore](Backup-and-Restore-en), or add `/share/Container/wrong-notebook` to a Hybrid Backup Sync task. Pull the new image, then recreate the container with the same volumes, port and environment variables; with an **Application**, change the image tag in the YAML and re-apply. Startup applies database migrations automatically.
+6. **Rollback**: once the database has been migrated, switching back to the old image alone may not be compatible. Stop the container, restore the pre-upgrade `data/` and `config/`, then recreate from the old image.
+
+
+
 ## Persistent directories
 
 | Container directory | Contents | Handling |

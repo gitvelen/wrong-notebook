@@ -1,0 +1,3 @@
+#!/bin/sh
+# 群晖套件：对 Container Manager 的依赖由 INFO 的 install_dep_packages 检查。
+exit 0

@@ -27,13 +27,14 @@ model User {
   role      String   @default("user") // "admin" or "user"
   isActive  Boolean  @default(true)   // 用户是否启用
 
-  confirmBeforeImport Boolean @default(false) // 导入题目前是否进入人工校对页
+  confirmBeforeImport Boolean @default(true) // 导入题目前是否进入人工校对页（默认先核对 AI 识别结果）
   questionDuplicateThreshold Float @default(90) // 百分比，相似度严格大于此值时判重
   masteryThreshold Int @default(50) // 百分比，掌握概率达到此值视为已掌握
   enableGeogebra Boolean @default(false) // 是否显示 GeoGebra 动态演示
   enableSvgAnimation Boolean @default(true) // 是否显示 SVG 动画讲解
   themePreference String @default("system") // 界面主题：system 跟随系统、light 浅色、dark 深色
   aiDataConsentAt DateTime? // 同意将题目等数据发送给第三方 AI 服务商的时间；为空表示尚未同意，AI 功能不可用
+  errorItemSeq Int @default(999) // 已分配的最大错题流水号，新错题取 +1（第一题为 1000）；删除错题不回收
 
   errorItems ErrorItem[]
   subjects   Subject[]
@@ -45,6 +46,56 @@ model User {
   paperGroups PaperGroup[]
   importTasks ImportTask[]
   importBatches ImportBatch[]
+  questionBanks QuestionBank[]
+}
+
+/// 用户导入的真题库：共享题库包或本地题库文件的结构化副本，独立于错题本
+model QuestionBank {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String   // 显示名，同一用户内唯一
+  description   String?
+  stage         String   // primary / junior_high / senior_high / university
+  subjectKey    String?  // math / english / ...
+  gradeRange    String?  // JSON 数组，如 [1,2,3,4,5,6]
+  source        String?  // 来源名，如 cn-math-taxonomy
+  sourceUrl     String?
+  license       String?
+  formatVersion Int      @default(1)
+  questionCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  questions     BankQuestion[]
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+}
+
+/// 真题库中的单题；知识点存名称 JSON，按名称与错题标签匹配选题
+model BankQuestion {
+  id              String   @id @default(cuid())
+  bankId          String
+  bank            QuestionBank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  externalId      String?  // 题库包内的稳定题号
+  stage           String
+  subjectKey      String?
+  grade           Int?
+  semester        String?
+  questionType    String?
+  difficultyStars Int?
+  text            String
+  material        String?
+  optionsJson     String?  // {"A":"...","B":"..."}
+  answer          String?
+  analysis        String?
+  knowledgePoints String?  // JSON 数组
+  source          String?
+  figureSvg       String?
+  createdAt       DateTime @default(now())
+
+  @@index([bankId, stage, subjectKey])
+  @@index([bankId, grade])
 }
 
 // 统一知识点标签表 (支持无限层级)
@@ -122,6 +173,7 @@ model PaperGroup {
 model ErrorItem {
   id             String   @id @default(cuid())
   shortId        String?  @unique // 6 位 base58 短 ID，创建后不变
+  seqNo          Int?     // 用户内的错题流水号（从 1000 起），显示为 #1000，创建后不变
   userId         String
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   subjectId      String?
@@ -181,6 +233,7 @@ model ErrorItem {
   // 列表、统计都按用户取错题并按时间排序；SQLite 不会自动给外键建索引
   @@index([userId, createdAt])
   @@index([subjectId])
+  @@unique([userId, seqNo])
 }
 
 model ReviewSchedule {
@@ -341,6 +394,7 @@ model ImportTask {
   targetSubjectId String?   // 固定放入的错题本；为空时按识别学科匹配或在校对页选择
   paperLevel      String?   // 指定的卷别分组
   imageData       String    // 压缩后的题目图片（data URL），入库后清空，原图保存在错题中
+  source          String?   // 错题来源（如「期中试卷」），入库时写入错题
   imageInfo       String?   // 图片格式、像素与体积（JSON），不含图片内容
   result          String?   // 识别结果（JSON），即待校对草稿；入库失败可直接重试保存
   errorItemId     String?

@@ -6,6 +6,11 @@ This document defines the **Wrong Notebook Question Exchange Format JSON v1**: u
 - JSON Schema: `doc/schemas/questions-v1.schema.json` (draft 2020-12)
 - Full example: `doc/schemas/questions-v1.example.json`
 
+## Question Bank Package JSON (shared banks)
+
+Banks imported on the **Question Bank** page use a separate format, `wrong-notebook-question-bank` v1. Its format definition, JSON Schema and the first primary, junior-high and senior-high packages live in [margrop/wrong-notebook-question-bank](https://github.com/margrop/wrong-notebook-question-bank). The app reads `index.json` there, downloads each package by `file`, and keeps imported questions in the bank unless you tick the option to add them to a notebook. This format does not replace the Question Exchange Format: the latter exchanges mistake content, while bank packages distribute shared questions and support knowledge-point selection.
+
+
 ## Exporting from the Notebook
 
 The error list's multi-select bar provides an export feature (`POST /api/error-items/export-questions`). The dialog offers three formats: **JSON / Excel / Word**. All formats are first returned by the server as Question Exchange JSON v1, then converted in the browser; no new server endpoint is added.
@@ -33,8 +38,8 @@ An `.xlsx` file (single sheet "题目") whose columns exactly match the question
 A `.docx` file, suitable for printing as an exam paper:
 
 - The document title can be customized (defaults to "Wrong Questions Export yyyy-MM-dd").
-- Questions are grouped by section (or by question type display name when no section, or not grouped at all); group headings are written as "第X大题 …" with continuous numbering.
-- Optional "Include answers and analysis" (enabled by default): placed in an "参考答案" section at the end, written as "N. 答案：… 解析：…" so the importer can fill them back by question number.
+- Questions are grouped by section (or by question type display name when no section, or not grouped at all); group headings are written as "第X大题 …" with continuous numbering (1．2． …).
+- Optional "Include answers and analysis" (enabled by default): placed in an "参考答案" section at the end, written as "N．答案：… 解析：…" so the importer can fill them back by question number.
 - Optional "Include original images": images are scaled proportionally to a width limit; webp is not written.
 - LaTeX formulas ($…$, $$…$$) are kept as-is; `figureSvg` is not exported; Markdown bold/italic markers are preserved verbatim.
 

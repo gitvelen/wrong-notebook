@@ -107,6 +107,7 @@ export const createImportTaskSchema = z.object({
     subjectId: z.string().max(100).nullish(),
     targetSubjectId: z.string().max(100).nullish(),
     paperLevel: z.string().max(30).nullish(),
+    source: z.string().trim().max(200).nullish(),
     /** 一图多题批量导入始终直接入库 */
     mode: z.literal('auto').optional(),
     imageInfo: imageInfoSchema.optional(),
@@ -138,8 +139,8 @@ function mergeTimings(raw: string | null, patch: ImportTaskTimings): string {
     });
 }
 
-export type TaskWithItem = ImportTask & { errorItem: { shortId: string | null; subject: { name: string } | null } | null };
-export const withItem = { errorItem: { select: { shortId: true, subject: { select: { name: true } } } } } satisfies Prisma.ImportTaskInclude;
+export type TaskWithItem = ImportTask & { errorItem: { shortId: string | null; seqNo: number | null; subject: { name: string } | null } | null };
+export const withItem = { errorItem: { select: { shortId: true, seqNo: true, subject: { select: { name: true } } } } } satisfies Prisma.ImportTaskInclude;
 /** 列表轮询只读取元数据，不加载题目图片 */
 export const summarySelect = {
     id: true, status: true, mode: true, subjectId: true, targetSubjectId: true, result: true, error: true, batchId: true, batchItemKey: true,
@@ -163,6 +164,7 @@ export function toSummary(task: SummaryRow): ImportTaskSummary {
         error: task.error,
         errorItemId: task.errorItemId,
         errorItemShortId: task.errorItem?.shortId ?? null,
+        errorItemSeqNo: task.errorItem?.seqNo ?? null,
         notebookName: task.errorItem?.subject?.name ?? null,
         duplicate: task.duplicate,
         hasResult: result !== null,
@@ -175,12 +177,13 @@ export function toSummary(task: SummaryRow): ImportTaskSummary {
 }
 
 /** 任务详情：题目图片只在明确需要（进入校对页）时返回，状态轮询与创建响应不重复传输整张图片 */
-function toDetail(task: SummaryRow & { paperLevel: string | null; imageData?: string }, options: { image?: boolean } = {}): ImportTaskDetail {
+function toDetail(task: SummaryRow & { paperLevel: string | null; source?: string | null; imageData?: string }, options: { image?: boolean } = {}): ImportTaskDetail {
     return {
         ...toSummary(task),
         result: parseResult(task.result),
         imageData: options.image ? task.imageData || null : null,
         paperLevel: task.paperLevel,
+        source: task.source ?? null,
     };
 }
 
@@ -331,6 +334,7 @@ function autoSavePayload(task: ImportTask, result: ParsedQuestion) {
     return parsedQuestionToSavePayload(result, {
         subjectId: task.targetSubjectId,
         imageUrl: task.imageData,
+        source: task.source ?? null,
         paperLevel: task.paperLevel,
     });
 }
@@ -469,7 +473,7 @@ async function executeTask(id: string): Promise<void> {
                 where: { id, status: 'analyzing' },
                 data: {
                     status: next,
-                    result: JSON.stringify(result),
+                    result: JSON.stringify(task?.source ? { ...result, source: task.source } : result),
                     error: null,
                     timings,
                     heartbeatAt: new Date(),
@@ -532,6 +536,7 @@ export async function createImportTask(user: User, raw: unknown, measured: { rec
                 targetSubjectId: input.targetSubjectId || null,
                 paperLevel: input.paperLevel || null,
                 imageData: input.imageBase64,
+                source: input.source?.trim() || null,
                 imageInfo: input.imageInfo ? JSON.stringify(input.imageInfo) : null,
                 timings: JSON.stringify({
                     client: input.clientTimings ?? {},
@@ -600,9 +605,57 @@ export async function getImportTask(user: Pick<User, 'id'>, id: string, options:
     await reconcileInterrupted(user.id, id);
     const task = await prisma.importTask.findFirst({
         where: { id, userId: user.id },
-        select: { ...summarySelect, paperLevel: true, imageData: options.image === true },
+        select: { ...summarySelect, paperLevel: true, source: true, imageData: options.image === true },
     });
     return task ? toDetail(task, options) : null;
+}
+
+/** 校对页重绘配图所需的任务内容；不是当前用户的待校对任务时给出对应错误响应 */
+export type ImportTaskFigureSource =
+    | { ok: true; imageData: string; questionText: string }
+    | { ok: false; response: NextResponse };
+
+/**
+ * 读取待校对任务的原图与题干。复用任务归属与中断恢复逻辑：
+ * 已保存、保存中或其他非待校对状态返回 409，没有合法识别结果同样视为不可校对。
+ */
+export async function getImportTaskFigureSource(user: Pick<User, 'id'>, id: string): Promise<ImportTaskFigureSource> {
+    await reconcileInterrupted(user.id, id);
+    const task = await prisma.importTask.findFirst({
+        where: { id, userId: user.id },
+        select: { status: true, imageData: true, result: true },
+    });
+    if (!task) return { ok: false, response: notFound('IMPORT_TASK_NOT_FOUND') };
+    const result = parseResult(task.result);
+    if (task.status !== 'review' || !result) {
+        const message = task.status === 'saving' ? 'IMPORT_TASK_BUSY' : 'IMPORT_TASK_NOT_REVIEWABLE';
+        return { ok: false, response: createErrorResponse(message, 409, ErrorCode.CONFLICT, { status: task.status }) };
+    }
+    return { ok: true, imageData: task.imageData, questionText: result.questionText };
+}
+
+/**
+ * 把重绘后的配图合并回任务结果，其余识别字段保留。
+ * 写入条件带 status: 'review'：与确认入库并发时不会覆盖已保存的错题数据；任务已离开待校对时返回 null。
+ */
+export async function updateImportTaskFigure(
+    userId: string,
+    id: string,
+    figure: { hasFigure: boolean; figureSvg: string | null },
+): Promise<{ hasFigure: boolean; figureSvg: string | null } | null> {
+    return serializeWrite(async () => {
+        const task = await prisma.importTask.findFirst({
+            where: { id, userId, status: 'review' },
+            select: { result: true },
+        });
+        if (!task) return null;
+        const result = parseJson<Record<string, unknown>>(task.result, {});
+        const updated = await prisma.importTask.updateMany({
+            where: { id, userId, status: 'review' },
+            data: { result: JSON.stringify({ ...result, hasFigure: figure.hasFigure, figureSvg: figure.figureSvg }) },
+        });
+        return updated.count > 0 ? figure : null;
+    });
 }
 
 /** 标记已查看（清除未读提示） */
@@ -652,7 +705,7 @@ export async function confirmImportTask(user: User, id: string, raw: unknown): P
         return current ? busyOrDone(current) : notFound('IMPORT_TASK_NOT_FOUND');
     }
     try {
-        const outcome = await saveTask(task, user, { ...parsed.data, subjectId, originalImageUrl: task.imageData });
+        const outcome = await saveTask(task, user, { ...parsed.data, source: parsed.data.source ?? task.source, subjectId, originalImageUrl: task.imageData });
         if (!outcome.ok) return questionSaveFailureToResponse(outcome.failure);
         const saved = await prisma.importTask.findUniqueOrThrow({ where: { id }, include: withItem });
         return NextResponse.json({ ...outcome.body, importTask: toSummary(saved) }, { status: outcome.status });

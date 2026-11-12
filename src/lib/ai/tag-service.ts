@@ -177,7 +177,8 @@ export async function getScopeTagsFromDB(subject: NotebookSubject, stage: Notebo
             }
             kids.forEach(collect);
         };
-        tags.filter((tag) => !tag.parentId && isGradeInStage(tag.name, stage)).forEach(collect);
+        // 年级节点只是分类，没有子节点时（如尚无知识点的「大一」）不能当成知识点
+        tags.filter((tag) => !tag.parentId && isGradeInStage(tag.name, stage) && children.has(tag.id)).forEach(collect);
         return Array.from(names);
     } catch (error) {
         logger.error({ error, subject, stage, tagSet }, 'getScopeTagsFromDB error');
@@ -185,24 +186,72 @@ export async function getScopeTagsFromDB(subject: NotebookSubject, stage: Notebo
     }
 }
 
-/** 错题本学段 + 学科 + 标签体系对应的候选知识点（直接交给 AI，不再按年级计算范围） */
-export async function getNotebookCandidateTags(scope: NotebookScope, tagSet: string = 'default'): Promise<CandidateTags | undefined> {
+/**
+ * 该用户在本学科、本标签体系下自己建的叶子标签（含没有年级父节点的根标签），
+ * 只保留隶属于该学段年级节点的，保证不同学段互不串标签。
+ */
+export async function getUserScopeTagsFromDB(subject: NotebookSubject, stage: NotebookStage, tagSet: string, userId: string): Promise<string[]> {
+    try {
+        const tags = await prisma.knowledgeTag.findMany({
+            where: { subject, tagSet, OR: [{ isSystem: true }, { userId }] },
+            select: { id: true, name: true, parentId: true, isSystem: true },
+            orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        });
+        const byId = new Map(tags.map((tag) => [tag.id, tag]));
+        const withChildren = new Set(tags.flatMap((tag) => (tag.parentId ? [tag.parentId] : [])));
+
+        const names = new Set<string>();
+        for (const tag of tags) {
+            if (tag.isSystem || withChildren.has(tag.id)) continue;
+            let root = tag;
+            const visited = new Set([tag.id]);
+            while (root.parentId && byId.has(root.parentId) && !visited.has(root.parentId)) {
+                root = byId.get(root.parentId)!;
+                visited.add(root.id);
+            }
+            // 根节点就是标签自己时视为无年级归属的自定义标签，一并作为候选
+            if (root.id === tag.id || isGradeInStage(root.name, stage)) names.add(tag.name);
+        }
+        return Array.from(names);
+    } catch (error) {
+        logger.error({ error, subject, stage, tagSet }, 'getUserScopeTagsFromDB error');
+        return [];
+    }
+}
+
+/**
+ * 错题本学段 + 学科 + 标签体系对应的候选知识点（直接交给 AI，不再按年级计算范围）。
+ * 该学段没有内置课程知识点时（如大学）标记 allowCustom，并把该错题本已有的用户标签作为优先复用清单。
+ */
+export async function getNotebookCandidateTags(scope: NotebookScope, tagSet: string = 'default', userId?: string): Promise<CandidateTags | undefined> {
     if (!scope.subject) return undefined;
+    const systemTags = await getScopeTagsFromDB(scope.subject, scope.stage, tagSet);
+    const allowCustom = systemTags.length === 0;
+    const tags = allowCustom && userId
+        ? await getUserScopeTagsFromDB(scope.subject, scope.stage, tagSet, userId)
+        : systemTags;
     return {
         subjectName: SUBJECT_DISPLAY_NAMES[scope.subject],
-        tags: await getScopeTagsFromDB(scope.subject, scope.stage, tagSet),
+        tags,
+        ...(allowCustom ? { allowCustom: true } : {}),
     };
 }
 
 /**
- * 未指定错题本时的旧逻辑：数学按学生年级取标签，其他学科取全部；未知学科时各科都取，让 AI 判断
+ * 未指定错题本时的候选标签：数学按学生年级取标签，其他学科取该学科全部知识点；
+ * 未知学科时各科都取，让 AI 判断后再按学科过滤。
  */
 export async function prefetchSubjectTags(subject: string | null | undefined, grade: GradeLevel | null | undefined, tagSet: string = 'default') {
     return {
         prefetchedMathTags: (subject === '数学' || !subject) ? await getMathTagsFromDB(grade || null, tagSet) : [],
+        prefetchedScienceTags: (subject === '科学' || !subject) ? await getTagsFromDB('science', tagSet) : [],
         prefetchedPhysicsTags: (subject === '物理' || !subject) ? await getTagsFromDB('physics', tagSet) : [],
         prefetchedChemistryTags: (subject === '化学' || !subject) ? await getTagsFromDB('chemistry', tagSet) : [],
         prefetchedBiologyTags: (subject === '生物' || !subject) ? await getTagsFromDB('biology', tagSet) : [],
         prefetchedEnglishTags: (subject === '英语' || !subject) ? await getTagsFromDB('english', tagSet) : [],
+        prefetchedChineseTags: (subject === '语文' || !subject) ? await getTagsFromDB('chinese', tagSet) : [],
+        prefetchedHistoryTags: (subject === '历史' || !subject) ? await getTagsFromDB('history', tagSet) : [],
+        prefetchedGeographyTags: (subject === '地理' || !subject) ? await getTagsFromDB('geography', tagSet) : [],
+        prefetchedPoliticsTags: (subject === '政治' || !subject) ? await getTagsFromDB('politics', tagSet) : [],
     };
 }

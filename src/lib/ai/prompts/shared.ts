@@ -83,6 +83,10 @@ export function gradeSemesterToDisplayName(gradeSemester: string): string | null
   if (gs.includes('高二')) return '高中二年级';
   if (gs.includes('高三')) return '高中三年级';
 
+  // 大学
+  const universityMatch = gs.match(/大([一二三四])/);
+  if (universityMatch) return `大学${universityMatch[1]}年级`;
+
   return null;
 }
 
@@ -131,7 +135,7 @@ export function generateFieldLanguageInstruction(language: 'zh' | 'en', generate
 }
 
 export const QUESTION_OUTPUT_TAGS = {
-  analyze: ['subject', 'knowledge_points', 'requires_image', 'has_figure', 'figure_svg', 'wrong_answer_text', 'mistake_status', 'difficulty_stars', 'question_type', 'mistake_analysis', 'question_text', 'answer_text', 'analysis', 'grade_semester'],
+  analyze: ['subject', 'knowledge_points', 'requires_image', 'has_figure', 'figure_box', 'wrong_answer_text', 'mistake_status', 'difficulty_stars', 'question_type', 'mistake_analysis', 'question_text', 'answer_text', 'analysis', 'grade_semester'],
   similar: ['question_text', 'answer_text', 'analysis', 'figure_svg'],
   reanswer: ['answer_text', 'analysis', 'knowledge_points', 'wrong_answer_text', 'mistake_status', 'mistake_analysis', 'subject', 'difficulty_stars', 'question_type', 'grade_semester'],
 } as const;
@@ -177,10 +181,15 @@ export interface PromptOptions {
   customTemplate?: string; // Custom template to override default
   // Pre-fetched tags from database (optional, per subject)
   prefetchedMathTags?: string[];
+  prefetchedScienceTags?: string[];
   prefetchedPhysicsTags?: string[];
   prefetchedChemistryTags?: string[];
   prefetchedBiologyTags?: string[];
   prefetchedEnglishTags?: string[];
+  prefetchedChineseTags?: string[];
+  prefetchedHistoryTags?: string[];
+  prefetchedGeographyTags?: string[];
+  prefetchedPoliticsTags?: string[];
   // 错题本学段 + 学科下的全部知识点；提供时直接使用，不再按学科、年级取标签
   candidateTags?: CandidateTags;
   // 举一反三时原题的 SVG 配图，供 AI 参考重新画图
@@ -213,7 +222,13 @@ export const FIGURE_SVG_RULES = `- 输出一个完整的 <svg> 元素，包含 x
 - 白色背景、黑色线条（stroke="#000"，线宽 1.5~2），需要区分的区域可用浅灰填充；不要使用彩色装饰。
 - 按原图比例和相对位置绘制，保留原题印刷标注：顶点字母、数字、长度、角度、单位、箭头和虚线等，文字用 <text>（font-size 14~18）；必须过滤掉人在图上手写的草稿、演算、思考批注、圈画和涂改痕迹。
 - 只使用基本图形元素：line、polyline、polygon、rect、circle、ellipse、path、text、g、defs、marker。
+- 必须是合法 XML：同一元素的属性不能重复；<line> 只画一条线段，折线用 <polyline points="...">。
 - 严禁使用 <image>、<script>、<foreignObject>、外部链接、外部字体或事件属性。`;
+
+/**
+ * 识别时定位配图的规则：识别只给出配图位置，配图由后续请求在裁剪出的区域上单独重绘
+ */
+export const FIGURE_BOX_RULES = `如果 has_figure 为 true，填写配图在整张图片中的位置，格式为 x1,y1,x2,y2：(x1,y1) 为左上角、(x2,y2) 为右下角，坐标按图片宽高归一化到 0~1000（图片左上角为 0,0，右下角为 1000,1000）。框住整个配图及图中的标注文字，不要包含题干和选项文字；有多个配图时框住全部配图。如果 has_figure 为 false，请留空。`;
 
 /**
  * 过滤图片中人的思考过程与草稿演算的规则（图片解析、重新解题共用）
@@ -221,6 +236,32 @@ export const FIGURE_SVG_RULES = `- 输出一个完整的 <svg> 元素，包含 x
 export const DRAFT_FILTER_RULES = `【过滤草稿与思考过程规则】
 - question_text 只转录原题本身，必须过滤掉图片中人的思考过程、手写草稿、竖式演算、试算过程、审题圈画、旁批注释以及填在横线或括号里的手写答案；已被手写填入答案的填空处必须还原为空白（____ 或空括号）。
 - wrong_answer_text 和 mistake_analysis 只记录和分析学生针对本题写出的正式错误答案或正式解题步骤，必须过滤掉空白处或题干旁的零散草稿、竖式演算、试算涂改和人的思考批注；若图片中仅有草稿或思考痕迹而无正式错误作答，wrong_answer_text 和 mistake_analysis 必须留空。`;
+
+/**
+ * 语文题干转写规则：拼音声调、看拼音写词语的空位、注音汉字顺序
+ * （图片识别、图片分题、文字修正共用，避免同一规则复制多份）
+ */
+export const CHINESE_TRANSCRIPTION_RULES = `【语文题干转写规则】
+- 拼音必须带声调符号原样转写（ā á ǎ à ō ó ǒ ò ē é ě è ī í ǐ ì ū ú ǔ ù ǖ ǘ ǚ ǜ ü）：不得丢掉声调、不得用数字声调（如 ma3），也不得把拼音改写成汉字。
+- 「看拼音写词语」等题型必须保留拼音与括号/方框的对应关系：每个空用「（  ）」原样保留，不要把多个空合并，也不要把拼音或答案填进空里。
+- 填空题的下划线、括号、田字格位置按原样保留为空，不要把答案填进题干。
+- 带拼音注音的汉字（如「zhāo（朝）」）保持原有顺序，不要把注音与汉字调换、拆开或省略。`;
+
+/**
+ * 学科为语文、学科未知（图片识别由 AI 判断）或题干含拼音时输出语文转写规则，其他情况返回空串。
+ * includeUnknownSubject：图片识别未指定错题本时无法提前知道学科，由调用方明确要求附带规则；
+ * 文字修正等已知文本场景保持默认 false，只在检测到拼音时附带。
+ */
+export function generateChineseTranscriptionRules(
+  subject?: string | null,
+  sampleText?: string | null,
+  includeUnknownSubject = false,
+): string {
+  if (subject === '语文' || (includeUnknownSubject && !subject) || (sampleText && /[āáǎàōóǒòēéěèīíǐìūúǔùǖǘǚǜü]|拼音/.test(sampleText))) {
+    return CHINESE_TRANSCRIPTION_RULES;
+  }
+  return '';
+}
 
 /**
  * LaTeX 书写规则：页面用 KaTeX 渲染，只支持其中的命令（识别、举一反三、重新解题、修复公式共用）

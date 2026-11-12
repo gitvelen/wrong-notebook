@@ -20,7 +20,7 @@ export type TelemetryPlatform = typeof TELEMETRY_PLATFORMS[number];
 export const TELEMETRY_CLIENTS = ["browser", "pwa", "desktop", "android"] as const;
 
 export const TELEMETRY_PAGES = [
-    "home", "notebooks", "error_detail", "practice", "review", "stats", "tags", "exams", "settings", "admin", "other",
+    "home", "notebooks", "error_detail", "practice", "review", "stats", "tags", "exams", "settings", "admin", "imports", "print", "auth", "setup", "other",
 ] as const;
 export type TelemetryPage = typeof TELEMETRY_PAGES[number];
 
@@ -97,6 +97,10 @@ const PAGE_RULES: Array<[RegExp, TelemetryPage]> = [
     [/^\/stats(\/|$)/, "stats"],
     [/^\/tags(\/|$)/, "tags"],
     [/^\/exams?(\/|$)/, "exams"],
+    [/^\/import-(tasks|batches)?(\/|$)/, "imports"],
+    [/^\/print-preview(\/|$)/, "print"],
+    [/^\/(login|register)(\/|$)/, "auth"],
+    [/^\/(initialize|eula)(\/|$)/, "setup"],
     [/^\/(settings|setup)(\/|$)/, "settings"],
     [/^\/admin(\/|$)/, "admin"],
 ];

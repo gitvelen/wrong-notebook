@@ -26,6 +26,56 @@ function grayPng(width: number, height: number): Buffer {
     for (let y = 0; y < height; y++) rows.fill(y % 40 < 2 ? 0 : 255, y * (width + 1) + 1, (y + 1) * (width + 1));
     return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
 }
+/** 生成白底、中部有一条红色横线的 RGB PNG，用于验证擦除做题痕迹 */
+function markedPng(width: number, height: number): Buffer {
+    const chunk = (type: string, data: Buffer) => {
+        const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(data.length);
+        const crc = Buffer.alloc(4);
+        crc.writeUInt32BE(crc32(body) >>> 0);
+        return Buffer.concat([length, body, crc]);
+    };
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header[8] = 8;
+    header[9] = 2; // RGB
+    const rows = Buffer.alloc((width * 3 + 1) * height);
+    const lineTop = Math.round(height * 0.45);
+    const lineBottom = Math.round(height * 0.55);
+    for (let y = 0; y < height; y++) {
+        const offset = y * (width * 3 + 1);
+        rows[offset] = 0;
+        for (let x = 0; x < width; x++) {
+            const red = y >= lineTop && y < lineBottom && x >= width * 0.25 && x < width * 0.75;
+            rows[offset + 1 + x * 3] = red ? 220 : 255;
+            rows[offset + 2 + x * 3] = red ? 20 : 255;
+            rows[offset + 3 + x * 3] = red ? 20 : 255;
+        }
+    }
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+/** 确认竖向长图的下框线与右下角手柄都在裁剪滚动区可视范围内，并能向上拖动缩小选框 */
+async function assertBottomCropHandle(page: Page) {
+    const cropper = page.getByRole('dialog');
+    const viewport = cropper.locator('.overflow-auto').first();
+    const selection = cropper.locator('.ReactCrop__crop-selection');
+    const handle = cropper.locator('.ReactCrop__drag-handle.ord-se');
+    await expect(selection).toBeVisible();
+    const viewportBox = await viewport.boundingBox();
+    const selectionBox = await selection.boundingBox();
+    const handleBox = await handle.boundingBox();
+    if (!viewportBox || !selectionBox || !handleBox) throw new Error('裁剪框或手柄没有可测量的边界');
+    expect(selectionBox.y + selectionBox.height).toBeLessThanOrEqual(viewportBox.y + viewportBox.height);
+    expect(handleBox.y + handleBox.height / 2).toBeLessThanOrEqual(viewportBox.y + viewportBox.height);
+    const before = selectionBox.height;
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2 - 40);
+    await page.mouse.up();
+    await expect.poll(async () => (await selection.boundingBox())?.height ?? 0).toBeLessThan(before - 10);
+}
 
 /** 选择图片后确认整图裁剪，返回落库的识别任务 */
 async function uploadWhole(page: Page, scenario: Scenario, files: Parameters<Page['setInputFiles']>[1]) {
@@ -67,7 +117,7 @@ test.describe('照片格式与尺寸', () => {
         await page.goto('/');
     });
 
-    test('[E2E-I01] 真实 HEIC 照片在浏览器无法直接解码时按需加载解码库，转为真正的 JPEG 后进入裁剪', async ({ page, scenario }, testInfo) => {
+    test('[E2E-I01] 真实 HEIC 照片在浏览器无法直接解码时按需加载解码库，解码后进入裁剪并保存为 WebP', async ({ page, scenario }, testInfo) => {
         const largeScripts = () => page.evaluate(() => performance.getEntriesByType('resource')
             .filter((entry) => entry.name.endsWith('.js') && (entry as PerformanceResourceTiming).decodedBodySize > 1_000_000).length);
         expect(await largeScripts()).toBe(0);
@@ -79,7 +129,7 @@ test.describe('照片格式与尺寸', () => {
         await page.getByRole('button', { name: /确认|Confirm/ }).click();
         await expect.poll(() => scenario.db.importTask.count({ where: { userId: scenario.user.id } })).toBe(1);
         const task = await scenario.db.importTask.findFirstOrThrow({ where: { userId: scenario.user.id } });
-        expect(task.imageData).toMatch(/^data:image\/jpeg;base64,\/9j\//);
+        expect(task.imageData).toMatch(/^data:image\/webp;base64,/);
         const info = JSON.parse(task.imageInfo!);
         expect(info).toMatchObject({ decoder: 'heic', sourceWidth: 1024, sourceHeight: 1024, outputWidth: 1024, outputHeight: 1024 });
         const timings = JSON.parse(task.timings!);
@@ -126,7 +176,38 @@ test.describe('照片格式与尺寸', () => {
         const info = JSON.parse(task.imageInfo!);
         expect(info).toMatchObject({ sourceWidth: 800, sourceHeight: 8000, outputWidth: 409, outputHeight: 4096 });
         expect(info.outputWidth * info.outputHeight).toBeLessThanOrEqual(2560 * 1920);
-        expect(task.imageData).toMatch(/^data:image\/jpeg;/);
+        expect(task.imageData).toMatch(/^data:image\/webp;/);
+    });
+
+    test('[E2E-I12] 桌面竖向长图的单题裁剪下边线在可视区内，可直接拖动下边', async ({ page }, testInfo) => {
+        await page.locator('[data-testid="file-input"]').setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: grayPng(600, 2000) });
+        await expect(page.getByRole('heading', { name: /裁剪|Crop/ })).toBeVisible({ timeout: 30000 });
+        await assertBottomCropHandle(page);
+        await snap(page, testInfo, 'tall-crop-bottom');
+    });
+
+    test('[E2E-I14] 裁剪框内可擦除做题笔迹，确认后只把擦除区域写入上传图片', async ({ page, scenario }, testInfo) => {
+        await page.locator('[data-testid="file-input"]').setInputFiles({ name: 'marked.png', mimeType: 'image/png', buffer: markedPng(1200, 800) });
+        await expect(page.getByRole('heading', { name: /裁剪|Crop/ })).toBeVisible({ timeout: 30000 });
+        await page.getByRole('button', { name: /擦除做题痕迹|Erase handwriting/ }).click();
+        const canvas = page.getByRole('dialog').locator('canvas').first();
+        const box = await canvas.boundingBox();
+        if (!box) throw new Error('擦除画布没有可测量的边界');
+        // 在红色横线所在高度从左向右涂一笔；笔画坐标相对图片，最终从原图裁剪时按比例应用
+        await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.5);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.5, { steps: 12 });
+        await page.mouse.up();
+        await snap(page, testInfo, 'erase-handwriting');
+        await page.getByRole('button', { name: /完成擦除|Done erasing/ }).click();
+        await page.getByRole('button', { name: /确认|Confirm/ }).click();
+        await expect.poll(() => scenario.db.importTask.count({ where: { userId: scenario.user.id } })).toBe(1);
+        const task = await scenario.db.importTask.findFirstOrThrow({ where: { userId: scenario.user.id } });
+        const { colors } = await inspectJpeg(page, task.imageData, [[0.5, 0.5], [0.1, 0.5], [0.5, 0.47]]);
+        expect(isWhite(colors[0]), `擦除处应为白色：${colors[0]}`).toBe(true);
+        expect(isWhite(colors[1]), `未擦除处仍为白色背景：${colors[1]}`).toBe(true);
+        expect(isRed(colors[2]), `笔画未覆盖的红色横线仍在：${colors[2]}`).toBe(true);
+        await scenario.db.importTask.deleteMany({ where: { userId: scenario.user.id } });
     });
 });
 
@@ -222,6 +303,16 @@ test.describe('手机拍照、相册与文件入口', () => {
         for (const name of ['取消', '确认']) {
             await expect(cropper.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 });
         }
+    });
+
+    test('[E2E-I13] 手机竖向长图的单题裁剪下边线在可视区内，可直接拖动下边', async ({ page, scenario }, testInfo) => {
+        await scenario.db.user.update({ where: { id: scenario.user.id }, data: { confirmBeforeImport: true } });
+        await scenario.login(page);
+        await page.goto('/');
+        await page.locator('[data-testid="file-input"]').setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: grayPng(600, 2000) });
+        await expect(page.getByRole('heading', { name: /裁剪|Crop/ })).toBeVisible({ timeout: 30000 });
+        await assertBottomCropHandle(page);
+        await testInfo.attach('tall-crop-bottom-mobile', { body: await page.screenshot(), contentType: 'image/png' });
     });
 });
 

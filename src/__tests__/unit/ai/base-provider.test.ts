@@ -4,14 +4,15 @@
  * 用最小测试子类验证：14 个业务方法调用 complete 时传入的 task/system/user/image 正确；
  * 空响应抛错；异常经 handleError 后抛出。
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({
     createLogger: vi.fn(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), box: vi.fn(), divider: vi.fn() })),
 }));
 
+const appConfig = vi.hoisted(() => ({ aiProvider: 'test', prompts: {}, figureReview: false }));
 vi.mock('@/lib/config', () => ({
-    getAppConfig: vi.fn(() => ({ aiProvider: 'test', prompts: {} })),
+    getAppConfig: vi.fn(() => appConfig),
 }));
 
 vi.mock('@/lib/ai/tag-service', () => ({
@@ -20,8 +21,16 @@ vi.mock('@/lib/ai/tag-service', () => ({
     prefetchSubjectTags: vi.fn(() => Promise.resolve({})),
 }));
 
-import { BaseAIProvider } from '@/lib/ai/base-provider';
+// 配图图片处理默认原样返回；需要裁剪结果的用例单独设置
+const figureImage = vi.hoisted(() => ({
+    prepareFigureImage: vi.fn((base64: string, mimeType: string) => Promise.resolve<PreparedFigureImage>({ base64, mimeType, width: null, height: null, cropped: false })),
+    renderFigureComparison: vi.fn(() => Promise.resolve<string | null>('Q01Q')),
+}));
+vi.mock('@/lib/ai/figure-image', () => figureImage);
+
+import { AI_CALL_DEADLINE_MS, MIN_FIGURE_REDRAW_MS, VERCEL_AI_CALL_DEADLINE_MS, aiCallDeadlineMs, BaseAIProvider } from '@/lib/ai/base-provider';
 import type { CompletionRequest } from '@/lib/ai/base-provider';
+import type { PreparedFigureImage } from '@/lib/ai/figure-image';
 import type { CompletionEvent, CompletionResult } from '@/lib/ai/completion';
 
 class TestProvider extends BaseAIProvider {
@@ -111,6 +120,67 @@ describe('BaseAIProvider', () => {
         it('空响应时抛错', async () => {
             provider.completeText.mockResolvedValue('');
             await expect(provider.analyzeImage('QUJD')).rejects.toThrow();
+        });
+
+        describe('识别后单独重绘配图', () => {
+            const NS = 'xmlns="http://www.w3.org/2000/svg"';
+            const analyzed = '<question_text>如图</question_text><answer_text>A</answer_text><analysis>解析</analysis><subject>化学</subject><knowledge_points>原电池</knowledge_points><requires_image>true</requires_image><has_figure>true</has_figure><figure_box>300,250,700,750</figure_box>';
+            const drawn = `<svg ${NS} viewBox="0 0 800 468"><rect width="10" height="10"/></svg>`;
+
+            afterEach(() => {
+                vi.unstubAllEnvs();
+            });
+
+            it('按识别给出的位置裁剪后用 figure 任务重绘，结果写入识别结果', async () => {
+                figureImage.prepareFigureImage.mockResolvedValueOnce({ base64: 'Q1JPUA==', mimeType: 'image/png', width: 800, height: 468, cropped: true });
+                provider.completeText
+                    .mockResolvedValueOnce(analyzed)
+                    .mockResolvedValueOnce(`<has_figure>true</has_figure><figure_outline>外框</figure_outline><figure_svg>${drawn}</figure_svg>`);
+
+                const result = await provider.analyzeImage('QUJD', 'image/jpeg');
+
+                expect(figureImage.prepareFigureImage).toHaveBeenCalledWith('QUJD', 'image/jpeg', { x1: 300, y1: 250, x2: 700, y2: 750 });
+                const figureRequest = provider.completeText.mock.calls[1][0];
+                expect(figureRequest).toMatchObject({ task: 'figure', image: { base64: 'Q1JPUA==', mimeType: 'image/png' } });
+                expect(figureRequest.system).toContain('viewBox="0 0 800 468"');
+                expect(JSON.parse(figureRequest.user).data.questionText).toBe('如图');
+                expect(result).toMatchObject({ hasFigure: true, figureSvg: drawn, questionText: '如图' });
+            });
+
+            it('无配图时不额外调用模型', async () => {
+                await provider.analyzeImage('QUJD');
+                expect(provider.completeText).toHaveBeenCalledTimes(1);
+            });
+
+            it('重绘失败不影响识别结果，配图留空', async () => {
+                provider.completeText.mockResolvedValueOnce(analyzed).mockRejectedValueOnce(new Error('AI_SERVICE_UNAVAILABLE'));
+                const result = await provider.analyzeImage('QUJD');
+                expect(result).toMatchObject({ hasFigure: true, figureSvg: null, answerText: 'A' });
+            });
+
+            it('识别回复仍带 SVG（旧自定义模板）且重绘没有结果时沿用该 SVG', async () => {
+                const legacy = `<svg ${NS}><circle r="3"/></svg>`;
+                provider.completeText
+                    .mockResolvedValueOnce(`${analyzed}<figure_svg>${legacy}</figure_svg>`)
+                    .mockResolvedValueOnce('<has_figure>true</has_figure><figure_svg></figure_svg>');
+                const result = await provider.analyzeImage('QUJD');
+                expect(result.figureSvg).toBe(legacy);
+            });
+
+            it('Vercel 上识别后剩余时间不足时跳过重绘', async () => {
+                vi.stubEnv('VERCEL', '1');
+                vi.useFakeTimers({ toFake: ['Date'] });
+                const start = Date.now();
+                // 识别本身耗时到只剩不足重绘所需的时间
+                provider.completeText.mockImplementationOnce(async () => {
+                    vi.setSystemTime(start + VERCEL_AI_CALL_DEADLINE_MS - MIN_FIGURE_REDRAW_MS + 1000);
+                    return analyzed;
+                });
+                const result = await provider.analyzeImage('QUJD');
+                vi.useRealTimers();
+                expect(provider.completeText).toHaveBeenCalledTimes(1);
+                expect(result).toMatchObject({ hasFigure: true, figureSvg: null });
+            });
         });
 
         it('异常经 handleError 后抛出', async () => {
@@ -203,6 +273,93 @@ describe('BaseAIProvider', () => {
                 image: { base64: 'QUJD', mimeType: 'image/jpeg' },
                 extraUserText: '请重新绘制图中题目的配图。',
             }));
+        });
+
+        const NS = 'xmlns="http://www.w3.org/2000/svg"';
+        const invalid = `<has_figure>true</has_figure><figure_svg><svg ${NS}><g><rect width="1" height="1"/></svg></figure_svg>`;
+        const fixedSvg = `<svg ${NS}><g><rect width="1" height="1"/></g></svg>`;
+
+        it('合法配图不再额外调用模型，裸 & 在本地修复', async () => {
+            provider.completeText.mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg><svg ${NS}><text>A & B</text></svg></figure_svg>`);
+            const figure = await provider.generateFigureSvg('QUJD', 'image/jpeg');
+            expect(figure.figureSvg).toContain('A &amp; B');
+            expect(provider.completeText).toHaveBeenCalledTimes(1);
+        });
+
+        it('配图不是合法 XML 时把解析错误交给模型修正一次', async () => {
+            provider.completeText
+                .mockResolvedValueOnce(invalid)
+                .mockResolvedValueOnce(`<figure_svg>${fixedSvg}</figure_svg>`);
+            const figure = await provider.generateFigureSvg('QUJD', 'image/jpeg');
+            expect(figure).toEqual({ hasFigure: true, figureSvg: fixedSvg });
+            const fixRequest = provider.completeText.mock.calls[1][0];
+            expect(fixRequest.task).toBe('figure');
+            expect(fixRequest.image).toBeUndefined();
+            expect(JSON.parse(fixRequest.user).data.xmlError).toBeTruthy();
+        });
+
+        describe('比对校正', () => {
+            const canvasImage: PreparedFigureImage = { base64: 'Q1JPUA==', mimeType: 'image/png', width: 800, height: 468, cropped: true };
+            const drawn = `<svg ${NS} viewBox="0 0 800 468"><line x1="0" y1="0" x2="10" y2="0"/></svg>`;
+            const revised = `<svg ${NS} viewBox="0 0 800 468"><line x1="10" y1="0" x2="0" y2="0"/></svg>`;
+
+            beforeEach(() => {
+                appConfig.figureReview = true;
+                figureImage.prepareFigureImage.mockResolvedValueOnce(canvasImage);
+            });
+            afterEach(() => {
+                appConfig.figureReview = false;
+            });
+
+            it('开启后把并排对比图交给模型，采用修正后的 SVG', async () => {
+                provider.completeText
+                    .mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg>${drawn}</figure_svg>`)
+                    .mockResolvedValueOnce(`<figure_differences>箭头方向相反</figure_differences><figure_svg>${revised}</figure_svg>`);
+                const figure = await provider.generateFigureSvg('QUJD', 'image/jpeg', '如图');
+
+                expect(figureImage.renderFigureComparison).toHaveBeenCalledWith(canvasImage, drawn);
+                const reviewRequest = provider.completeText.mock.calls[1][0];
+                expect(reviewRequest).toMatchObject({ task: 'figure', image: { base64: 'Q01Q', mimeType: 'image/png' } });
+                expect(reviewRequest.system).toContain('各宽 800 像素、高 468 像素');
+                expect(JSON.parse(reviewRequest.user).data.figureSvg).toBe(drawn);
+                expect(figure.figureSvg).toBe(revised);
+            });
+
+            it('模型认为一致（不输出 SVG）或调用失败时保留原 SVG', async () => {
+                provider.completeText
+                    .mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg>${drawn}</figure_svg>`)
+                    .mockResolvedValueOnce('<figure_differences>无</figure_differences><figure_svg></figure_svg>');
+                expect((await provider.generateFigureSvg('QUJD', 'image/jpeg')).figureSvg).toBe(drawn);
+
+                figureImage.prepareFigureImage.mockResolvedValueOnce(canvasImage);
+                provider.completeText
+                    .mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg>${drawn}</figure_svg>`)
+                    .mockRejectedValueOnce(new Error('AI_TIMEOUT_ERROR'));
+                expect((await provider.generateFigureSvg('QUJD', 'image/jpeg')).figureSvg).toBe(drawn);
+            });
+
+            it('无法渲染对比图时不调用模型比对', async () => {
+                figureImage.renderFigureComparison.mockResolvedValueOnce(null);
+                provider.completeText.mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg>${drawn}</figure_svg>`);
+                expect((await provider.generateFigureSvg('QUJD', 'image/jpeg')).figureSvg).toBe(drawn);
+                expect(provider.completeText).toHaveBeenCalledTimes(1);
+            });
+
+            it('关闭时不比对', async () => {
+                appConfig.figureReview = false;
+                provider.completeText.mockResolvedValueOnce(`<has_figure>true</has_figure><figure_svg>${drawn}</figure_svg>`);
+                await provider.generateFigureSvg('QUJD', 'image/jpeg');
+                expect(figureImage.renderFigureComparison).not.toHaveBeenCalled();
+                expect(provider.completeText).toHaveBeenCalledTimes(1);
+            });
+        });
+
+        it('修正后仍不合法或修正调用失败时丢弃配图，保留有配图的判断', async () => {
+            provider.completeText.mockResolvedValueOnce(invalid).mockResolvedValueOnce(invalid);
+            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null });
+
+            provider.completeText.mockResolvedValueOnce(invalid).mockRejectedValueOnce(new Error('AI_TIMEOUT_ERROR'));
+            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null });
         });
     });
 
@@ -300,5 +457,62 @@ describe('BaseAIProvider 补全观察者', () => {
         provider.observeCompletions(undefined);
         await expect(provider.fixQuestionText([{ id: 'q1', text: '原文' }])).resolves.toBeDefined();
         expect(events).toHaveLength(0);
+    });
+});
+
+describe('BaseAIProvider 调用总时限', () => {
+    /** 模拟一直不返回、直到收到中止信号才失败的服务商 */
+    function hangingProvider(): TestProvider {
+        const provider = new TestProvider();
+        provider.completeText.mockImplementation((request) => new Promise((_, reject) => {
+            request.signal?.addEventListener('abort', () => reject(new Error('Request was aborted.')));
+        }));
+        return provider;
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('超过总时限后中止请求（含 SDK 重试），按 AI_TIMEOUT_ERROR 失败', async () => {
+        expect(AI_CALL_DEADLINE_MS).toBe(10 * 60 * 1000);
+        const provider = hangingProvider();
+        const result = provider.splitQuestions({ kind: 'text', lines: ['1. 题目'], language: 'zh' }).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(AI_CALL_DEADLINE_MS - 1);
+        expect(provider.completeText.mock.calls[0][0].signal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const error = await result;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('AI_TIMEOUT_ERROR');
+    });
+
+    it('Vercel 上在函数被强制结束（300 秒）前超时', async () => {
+        vi.stubEnv('VERCEL', '1');
+        try {
+            expect(aiCallDeadlineMs()).toBe(VERCEL_AI_CALL_DEADLINE_MS);
+            expect(VERCEL_AI_CALL_DEADLINE_MS).toBeLessThan(300_000);
+            const provider = hangingProvider();
+            const result = provider.splitQuestions({ kind: 'text', lines: ['1. 题目'], language: 'zh' }).catch((error: unknown) => error);
+            await vi.advanceTimersByTimeAsync(VERCEL_AI_CALL_DEADLINE_MS);
+            expect(((await result) as Error).message).toBe('AI_TIMEOUT_ERROR');
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('未超时的服务商错误照常归类，不被当成超时', async () => {
+        const provider = new TestProvider();
+        provider.completeText.mockRejectedValue(new Error('401 Unauthorized'));
+        await expect(provider.splitQuestions({ kind: 'text', lines: ['1. 题目'], language: 'zh' })).rejects.toThrow('AI_AUTH_ERROR');
+    });
+
+    it('按时返回时清除计时器', async () => {
+        const provider = new TestProvider();
+        await provider.splitQuestions({ kind: 'text', lines: ['1. 题目'], language: 'zh' });
+        expect(vi.getTimerCount()).toBe(0);
     });
 });

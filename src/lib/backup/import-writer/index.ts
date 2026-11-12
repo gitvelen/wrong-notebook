@@ -7,10 +7,11 @@ import { createImportContext } from "./types";
 import type { ImportWriterOptions, ImportWriterResult } from "./types";
 import { importPreferences, importSubjects } from "./subjects";
 import { importSystemTags, importCustomTags, preloadErrorItemTags } from "./tags";
+import { importQuestionBanks } from "./banks";
 import { importPaperGroups, importErrorItems } from "./error-items";
 import { importReviewSchedules, importExamPapers } from "./exams";
 import { importPracticeRecords, syncMasteryThreshold } from "./practice";
-import { importBatchesAndTasks, importRegisteredExtensions } from "./misc";
+import { importRegisteredExtensions } from "./misc";
 
 export { createImportContext } from "./types";
 export type { ImportStats, ImportContext, ImportWriterOptions, ImportWriterResult } from "./types";
@@ -29,14 +30,15 @@ export async function importBackupData(options: ImportWriterOptions): Promise<Im
     // 4. 卷别分组与错题
     await importPaperGroups(ctx);
     await importErrorItems(ctx);
+    // 4.1 真题库与题目（独立于错题本）
+    await importQuestionBanks(ctx);
     // 5-6. 复习计划与试卷
     await importReviewSchedules(ctx);
     await importExamPapers(ctx);
     // 7、9. 练习记录与掌握阈值同步
     await importPracticeRecords(ctx);
     await syncMasteryThreshold(ctx);
-    // 8、10. 导入批次/任务与扩展数据
-    await importBatchesAndTasks(ctx);
+    // 10. 导入扩展数据；待校对任务与未完成批次不再参与导入
     await importRegisteredExtensions(ctx);
 
     return { stats: ctx.stats, masteryIds: [...ctx.masteryIds] };

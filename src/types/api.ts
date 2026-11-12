@@ -1,4 +1,6 @@
 import { ParsedQuestion } from "@/lib/ai/types";
+import type { QuestionNumbering } from "@/lib/seq-no/seq-no-format";
+import type { AiProviderId } from "@/lib/config/types";
 import type { VendorConfig, VendorProviderId } from "@/lib/ai/vendor-presets";
 import type { MiniMaxCodeConfig } from "@/lib/minimax-code/constants";
 import type { MasteryStatus } from "@/lib/mastery-status";
@@ -63,6 +65,8 @@ export interface Notebook {
 export interface ErrorItem {
     id: string;
     shortId?: string | null;
+    /** 用户内的错题流水号 */
+    seqNo?: number | null;
     userId: string;
     subjectId?: string | null;
     subject?: Notebook | null;
@@ -104,7 +108,7 @@ export interface ErrorItem {
 
 /** 列表卡片数据；不包含原图、解答和动画等详情字段。 */
 export type ErrorItemSummary = Pick<ErrorItem,
-    'id' | 'shortId' | 'questionText' | 'mistakeStatus' | 'knowledgePoints' |
+    'id' | 'shortId' | 'seqNo' | 'questionText' | 'mistakeStatus' | 'knowledgePoints' |
     'difficultyStars' | 'masteryStatus' | 'masteryProbability' | 'createdAt' | 'questionType'
 > & { tags?: Pick<Tag, 'name'>[] };
 
@@ -176,13 +180,17 @@ export interface OpenAIInstance {
 type VendorConfigs = { [K in VendorProviderId]?: VendorConfig };
 
 export interface AppConfig extends VendorConfigs {
-    aiProvider: 'gemini' | 'openai' | 'azure' | 'anthropic' | 'minimax-code' | VendorProviderId;
+    aiProvider: AiProviderId;
     allowRegistration?: boolean;
     /** 普通用户每天可发起的 AI 调用次数，0 表示不限制；管理员不受限制 */
     aiDailyLimit?: number;
     /** 同一模型同时进行的 AI 调用上限，超出的调用排队；默认 5 */
     aiConcurrencyLimit?: number;
     timeZone?: string;
+    /** 题目编号显示方式：shortId 为 6 位随机 ID（默认），seqNo 为用户内的流水号 #123 */
+    questionNumbering?: QuestionNumbering;
+    /** AI 配图比对校正：重绘配图后把原图与结果并排交给 AI 比对并修正差异；默认关闭 */
+    figureReview?: boolean;
     /** 管理员完成（或跳过）安装向导的时间，ISO 字符串；未设置时新安装会自动进入向导 */
     setupCompletedAt?: string;
     openai?: {
@@ -207,9 +215,16 @@ export interface AppConfig extends VendorConfigs {
         model?: string;
     };
     minimaxCode?: MiniMaxCodeConfig;
+    /** 渠道分工：识别与文本分析可分开使用不同渠道，额度用完时改用备用渠道 */
+    routing?: {
+        vision?: AiProviderId | '';
+        text?: AiProviderId | '';
+        fallback?: AiProviderId | '';
+    };
     prompts?: {
         analyze?: string;
         similar?: string;
+        reanswer?: string;
     };
     timeouts?: {
         analyze?: number; // 毫秒

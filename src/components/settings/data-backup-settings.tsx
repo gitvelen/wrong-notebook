@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, Download, Loader2, Upload } from "lucide-react";
+import { gunzipSync } from "fflate";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiClient, ApiError } from "@/lib/api-client";
+import { MAX_BACKUP_IMPORT_BYTES } from "@/lib/backup/limits";
 import { useRunningTask } from "@/lib/hooks/use-running-task";
 import { downloadFile } from "@/lib/download-file";
 import { confirmDialog, toast } from "@/lib/feedback";
@@ -17,6 +19,8 @@ type ImportStats = Record<string, number | boolean | undefined>;
 interface DataBackupSettingsProps {
     isAdmin: boolean;
     userId: string;
+    /** 当前登录账号邮箱，用于识别备份是否来自其他账号 */
+    userEmail: string;
 }
 
 function formatImportResult(stats: ImportStats, t: Translations): string {
@@ -32,7 +36,7 @@ function formatImportResult(stats: ImportStats, t: Translations): string {
 }
 
 /** 数据备份：导出、导入 JSON；管理员可导出、导入全部用户的数据 */
-export function DataBackupSettings({ isAdmin, userId }: DataBackupSettingsProps) {
+export function DataBackupSettings({ isAdmin, userId, userEmail }: DataBackupSettingsProps) {
     const { t } = useLanguage();
     const [exporting, setExporting] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -59,8 +63,9 @@ export function DataBackupSettings({ isAdmin, userId }: DataBackupSettingsProps)
         }
         setExporting(true);
         try {
-            await downloadFile(all ? '/api/export?all=true' : '/api/export', all ? 'wrong-notebook-export-all.json' : 'wrong-notebook-export.json');
-            toast.success(t.settings?.exportSuccess || "Export successful");
+            // 安卓 App 的保存对话框异步返回：确认文件已写入后再提示成功
+            const saved = await downloadFile(all ? '/api/export?all=true&compress=gzip' : '/api/export?compress=gzip', all ? 'wrong-notebook-export-all.json' : 'wrong-notebook-export.json');
+            if (saved) toast.success(t.settings?.exportSuccess || "Export successful");
         } catch (error) {
             frontendLogger.error('[DataBackupSettings]', all ? 'Export all failed' : 'Export failed', { error });
             toast.error(t.settings?.exportFailed || "Export failed");
@@ -71,17 +76,46 @@ export function DataBackupSettings({ isAdmin, userId }: DataBackupSettingsProps)
 
     const handleImport = async (all: boolean) => {
         if (!selectedFile) return;
+        if (selectedFile.size > MAX_BACKUP_IMPORT_BYTES) {
+            toast.error(t.importFile.tooLarge.replace("{max}", String(MAX_BACKUP_IMPORT_BYTES / 1024 / 1024)));
+            return;
+        }
+        let data: unknown;
+        try {
+            // 新版导出为 gzip 压缩的 JSON（文件名仍是 .json）；旧版纯 JSON 原样解析
+            const bytes = new Uint8Array(await selectedFile.arrayBuffer());
+            const gzipped = bytes.length > 1 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+            const decompressed = gzipped ? gunzipSync(bytes) : bytes;
+            if (decompressed.length > MAX_BACKUP_IMPORT_BYTES) {
+                toast.error(t.importFile.tooLarge.replace("{max}", String(MAX_BACKUP_IMPORT_BYTES / 1024 / 1024)));
+                return;
+            }
+            data = JSON.parse(new TextDecoder().decode(decompressed));
+        } catch (error) {
+            frontendLogger.error('[DataBackupSettings]', 'Import file is not valid JSON', { error });
+            toast.error(t.settings?.importFailed || "Import failed");
+            return;
+        }
+
+        const backupUser = typeof data === 'object' && data !== null && 'user' in data ? data.user : undefined;
+        const sourceEmail = typeof backupUser === 'object' && backupUser !== null && 'email' in backupUser && typeof backupUser.email === 'string'
+            ? backupUser.email
+            : null;
+        const merging = !all && !!sourceEmail && !!userEmail && sourceEmail !== userEmail;
         const confirmText = all
             ? (t.settings?.importAllConfirm || "Import all users' data? This will restore data for all users from the export file.")
-            : (t.settings?.importConfirm || "Are you sure you want to import?");
+            : merging
+                ? (t.settings?.importOtherAccountConfirm || "This backup belongs to {email}. Importing merges it into the current account without restoring that account's preferences. Continue?").replace("{email}", sourceEmail ?? "")
+                : (t.settings?.importConfirm || "Are you sure you want to import?");
         if (!(await confirmDialog(confirmText))) {
             return;
         }
 
         setImporting(true);
         try {
-            const data = JSON.parse(await selectedFile.text());
-            const { stats } = await apiClient.post<{ stats: ImportStats }>(all ? '/api/import?all=true' : '/api/import', data);
+            const url = all ? '/api/import?all=true' : merging ? '/api/import?merge=true' : '/api/import';
+            // 直接上传选中文件：压缩文件按原字节发送，服务端按 gzip 魔数自动解压
+            const { stats } = await apiClient.postRaw<{ stats: ImportStats }>(url, selectedFile, { timeout: 300000 });
             toast.success(formatImportResult(stats, t));
             setSelectedFile(null);
             window.location.reload();
@@ -90,7 +124,7 @@ export function DataBackupSettings({ isAdmin, userId }: DataBackupSettingsProps)
                 toast.info(t.errors.TASK_ALREADY_RUNNING);
                 await refreshImportTask();
             } else {
-                frontendLogger.error('[DataBackupSettings]', all ? 'Import all failed' : 'Import failed', { error });
+                frontendLogger.error('[DataBackupSettings]', all ? 'Import all failed' : merging ? 'Merge import failed' : 'Import failed', { error });
                 toast.error(t.settings?.importFailed || "Import failed");
             }
         } finally {
