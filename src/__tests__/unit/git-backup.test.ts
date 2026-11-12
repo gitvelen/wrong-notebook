@@ -20,6 +20,7 @@ interface TestErrorItem {
     id: string;
     originalImageUrl: string;
     questionText: string | null;
+    [key: string]: unknown;
 }
 
 interface TestExamQuestion {
@@ -30,6 +31,7 @@ interface TestExamQuestion {
 interface TestRowWithImage {
     id: string;
     imageData: string;
+    [key: string]: unknown;
 }
 
 const fixture = {
@@ -113,7 +115,7 @@ describe('git-backup 剥离图片', () => {
         expect(tasks[0]?.imageData).toBe('');
         expect(batches[0]?.imageData).toBe('');
 
-        const records = output.practiceRecords as { originalImageUrl?: string | null }[];
+        const records = output.practiceRecords as { originalImageUrl?: string | null; questionText?: string | null }[];
         expect(records[0]?.originalImageUrl).toBeNull();
         expect(records[0]?.questionText).toBe('练习题快照');
 
