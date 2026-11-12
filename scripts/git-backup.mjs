@@ -118,8 +118,13 @@ async function main() {
     const backup = await exportAllData({ baseUrl, email, password });
 
     const target = `${worktree}/${BACKUP_FILE}`;
+    const serialized = JSON.stringify(stripBackupImages(backup), null, 2);
+    // 保险：上游格式升版若新增图片字段，这里直接失败而不是把图片提交进公开仓库
+    if (serialized.includes('data:image')) {
+        throw new Error('剥离后仍检测到 data:image 数据：备份格式可能有新增图片字段，请更新 stripBackupImages');
+    }
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, `${JSON.stringify(stripBackupImages(backup), null, 2)}\n`);
+    await writeFile(target, `${serialized}\n`);
     log(`剥离图片后的备份已写入 ${target}`);
 
     git(worktree, ['add', '--', BACKUP_FILE]);
