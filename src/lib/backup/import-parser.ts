@@ -10,6 +10,7 @@ import type {
     ImportedBackupErrorItem,
     ImportedBackupExamPaper,
     ImportedBackupPracticeRecord,
+    ImportedBackupPracticeQuestion,
     ImportedBackupReviewSchedule,
 } from "@/lib/backup/format";
 import { parseLastPractice } from "@/lib/last-practice";
@@ -19,6 +20,7 @@ import { GRADE_RECOGNITION_MODES } from "@/lib/question/question-grade";
 import { GRADE_SEMESTERS } from "@/lib/grade-options";
 import { parseDifficultyStars } from "@/lib/ai/schema";
 import { sanitizeFigureSvg } from "@/lib/figure-svg";
+import { sanitizeFigureImage } from "@/lib/figure-image";
 import { normalizeFigureAlign, normalizeFigureScale } from "@/lib/figure-scale";
 import { normalizeCustomAnswerSpacePx } from "@/lib/exam/exam-answer-space";
 import { sanitizeSvgAnimation } from "@/lib/svg-animation";
@@ -85,6 +87,8 @@ export interface NormalizedErrorItem {
     masteryLevel: number;
     hasFigure: boolean;
     figureSvg: string | null;
+    figureImage: string | null;
+    figureSource: "svg" | "image";
     figureScale: number;
     figureAlign: ReturnType<typeof normalizeFigureAlign>;
     answerSpacePx: number | null;
@@ -128,6 +132,14 @@ export interface NormalizedPracticeRecord {
     source: string;
 }
 
+/** 规范化的智能练习生成题 */
+export interface NormalizedPracticeQuestion {
+    raw: ImportedBackupPracticeQuestion;
+    generatedAt: Date | undefined;
+    createdAt: Date | undefined;
+    figureSvg: string | null;
+}
+
 /** 规范化后的导入数据：import-writer 直接据此写库 */
 export interface NormalizedImportData {
     data: ImportData;
@@ -140,6 +152,7 @@ export interface NormalizedImportData {
     errorItems: NormalizedErrorItem[];
     reviewSchedules: NormalizedReviewSchedule[];
     practiceRecords: NormalizedPracticeRecord[];
+    practiceQuestions: NormalizedPracticeQuestion[];
     examPapers: NormalizedExamPaper[];
     paperGroups: NonNullable<ImportData['paperGroups']>;
     questionBanks: NonNullable<ImportData['questionBanks']>;
@@ -149,14 +162,17 @@ function normalizeErrorItem(item: ImportedBackupErrorItem): NormalizedErrorItem 
     const masteryProbability = safeMasteryProbability(item.masteryProbability);
     const masteryEvaluatedAt = masteryProbability === null ? undefined : safeParseDate(item.masteryEvaluatedAt);
     const figureSvg = sanitizeFigureSvg(item.figureSvg);
+    const figureImage = sanitizeFigureImage(item.figureImage);
     return {
         raw: item,
         masteryProbability,
         masteryEvaluatedAt,
         difficultyStars: parseDifficultyStars(item.difficultyStars),
         masteryLevel: safeMasteryLevel(item.masteryLevel),
-        hasFigure: item.hasFigure === true || figureSvg !== null,
+        hasFigure: item.hasFigure === true || figureSvg !== null || figureImage !== null,
         figureSvg,
+        figureImage,
+        figureSource: item.figureSource === "image" && figureImage ? "image" : "svg",
         figureScale: normalizeFigureScale(item.figureScale),
         figureAlign: normalizeFigureAlign(item.figureAlign),
         answerSpacePx: normalizeCustomAnswerSpacePx(item.answerSpacePx),
@@ -202,6 +218,15 @@ function normalizePracticeRecord(record: ImportedBackupPracticeRecord): Normaliz
     };
 }
 
+function normalizePracticeQuestion(question: ImportedBackupPracticeQuestion): NormalizedPracticeQuestion {
+    return {
+        raw: question,
+        generatedAt: safeParseDate(question.generatedAt),
+        createdAt: safeParseDate(question.createdAt),
+        figureSvg: sanitizeFigureSvg(question.figureSvg),
+    };
+}
+
 /** 解析用户偏好设置：逐项校验，不合法的单项跳过 */
 export function parsePreferences(source: ImportData['user']): Prisma.UserUpdateInput {
     const preferences: Prisma.UserUpdateInput = {};
@@ -233,6 +258,7 @@ export function normalizeBackupForImport(body: ImportData, belongsToCurrentUser:
             completedAt: safeParseDate(schedule.completedAt),
         })),
         practiceRecords: (body.practiceRecords ?? []).map(normalizePracticeRecord),
+        practiceQuestions: (body.practiceQuestions ?? []).map(normalizePracticeQuestion),
         examPapers: (body.examPapers ?? []).map(normalizeExamPaper),
         paperGroups: body.paperGroups ?? [],
         questionBanks: body.questionBanks ?? [],

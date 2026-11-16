@@ -24,7 +24,7 @@ import { normalizeMistakeStatusForSave } from '@/lib/question/mistake-status';
 import { parseRecognizedGrade } from '@/lib/question/question-grade';
 import { normalizeGeneratedQuestion } from './generated-question';
 import { normalizeAiQuestionTags } from './knowledge-points';
-import { isImageUnsupportedError, parseQuestionSplit, AI_IMAGE_NOT_SUPPORTED } from './question-split';
+import { isImageUnsupportedError, parseQuestionSplit, splitImagePages, AI_IMAGE_NOT_SUPPORTED } from './question-split';
 import { parseTextFix } from './text-fix';
 import type { CompletionObserver, CompletionResult } from './completion';
 import { completionErrorCode } from './completion';
@@ -73,6 +73,8 @@ export interface CompletionRequest {
     system: string;
     user: string;
     image?: CompletionImage;
+    /** 多张图片（多页 PDF 分题），按页码顺序发送；与 image 互斥 */
+    images?: CompletionImage[];
     /** 附加在图片后的额外文字（如配图重绘时的提示） */
     extraUserText?: string;
     /** 总时限到期时中止请求；由 run 设置，各提供商透传给 SDK */
@@ -357,17 +359,21 @@ export abstract class BaseAIProvider implements AIService {
     private async redrawAnalyzedFigure(parsed: ParsedQuestion, imageBase64: string, mimeType: string, box: FigureBox | null, startedAt: number): Promise<ParsedQuestion> {
         if (!parsed.hasFigure) return parsed;
         const deadlineAt = flowDeadline(startedAt);
-        const fallback = async () => ({
-            ...parsed,
-            figureSvg: parsed.figureSvg ? await this.ensureValidFigureSvg(parsed.figureSvg, deadlineAt) : null,
-        });
+        const fallback = async () => {
+            const image = await prepareFigureImage(imageBase64, mimeType, box);
+            return {
+                ...parsed,
+                figureSvg: parsed.figureSvg ? await this.ensureValidFigureSvg(parsed.figureSvg, deadlineAt) : null,
+                figureImage: image.cropped ? `data:image/png;base64,${image.base64}` : null,
+            };
+        };
         if (deadlineAt !== undefined && deadlineAt - Date.now() < MIN_FIGURE_REDRAW_MS) {
             logger.warn({ provider: this.providerName, remainingMs: deadlineAt - Date.now() }, 'Not enough time left to redraw figure after analysis');
             return fallback();
         }
         try {
             const figure = await this.drawFigure(imageBase64, mimeType, parsed.questionText, { box, deadlineAt });
-            if (figure.figureSvg) return { ...parsed, figureSvg: figure.figureSvg };
+            if (figure.figureSvg) return { ...parsed, figureSvg: figure.figureSvg, figureImage: figure.figureImage };
             logger.warn({ provider: this.providerName, hasBox: !!box }, 'Figure redraw returned no valid SVG');
         } catch (error) {
             logger.warn({ provider: this.providerName, error }, 'Figure redraw after analysis failed');
@@ -388,6 +394,7 @@ export abstract class BaseAIProvider implements AIService {
     /** 重绘配图：准备图片（按位置裁剪、统一尺寸）→ 画 SVG → 校验 XML */
     private async drawFigure(imageBase64: string, mimeType: string, questionText: string | null | undefined, options: FigureOptions): Promise<FigureResult> {
         const image = await prepareFigureImage(imageBase64, mimeType, options.box ?? null);
+        const figureImage = image.cropped ? `data:image/png;base64,${image.base64}` : null;
         const canvas = image.width && image.height ? { width: image.width, height: image.height, cropped: image.cropped } : null;
         const prompt = generateFigureRequest(questionText, canvas);
         logger.info({ provider: this.providerName, imageSize: image.base64.length, canvas }, 'Figure SVG Request');
@@ -402,10 +409,10 @@ export abstract class BaseAIProvider implements AIService {
         });
         logger.debug({ rawResponse: text }, 'Figure SVG AI raw response');
         const figure = parseFigure(extractTag(text, "has_figure"), extractTag(text, "figure_svg"));
-        if (!figure.figureSvg) return figure;
+        if (!figure.figureSvg) return { ...figure, figureImage };
         const figureSvg = await this.ensureValidFigureSvg(figure.figureSvg, options.deadlineAt);
-        if (!figureSvg || getAppConfig().figureReview !== true) return { ...figure, figureSvg };
-        return { ...figure, figureSvg: await this.reviewFigure(image, figureSvg, questionText, options.deadlineAt) };
+        if (!figureSvg || getAppConfig().figureReview !== true) return { ...figure, figureSvg, figureImage };
+        return { ...figure, figureSvg: await this.reviewFigure(image, figureSvg, questionText, options.deadlineAt), figureImage };
     }
 
     /**
@@ -507,11 +514,14 @@ export abstract class BaseAIProvider implements AIService {
 
     async splitQuestions(input: QuestionSplitInput): Promise<QuestionSplitResult> {
         const prompt = generateQuestionSplitRequest(input);
-        logger.info({ provider: this.providerName, kind: input.kind }, 'Question Split Request');
-        const image = input.kind === 'image' ? { base64: input.imageBase64, mimeType: input.mimeType } : undefined;
+        logger.info({ provider: this.providerName, kind: input.kind, pages: input.kind === 'image' ? input.pages?.length ?? 1 : 0 }, 'Question Split Request');
+        const images = input.kind === 'image' && input.pages?.length
+            ? splitImagePages(input).map((page) => ({ base64: page.imageBase64, mimeType: page.mimeType }))
+            : undefined;
+        const image = input.kind === 'image' && !images ? { base64: input.imageBase64, mimeType: input.mimeType } : undefined;
 
         try {
-            const text = await this.run({ task: 'question-split', system: prompt.system, user: prompt.user, image });
+            const text = await this.run({ task: 'question-split', system: prompt.system, user: prompt.user, image, images });
             logger.debug({ rawResponse: text }, 'Question split AI raw response');
             return parseQuestionSplit(text, input);
         } catch (error) {

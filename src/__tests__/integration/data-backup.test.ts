@@ -26,6 +26,8 @@ vi.mock('@/lib/mastery', async (importOriginal) => ({
 import { GET as EXPORT } from '@/app/api/export/route';
 import { POST as IMPORT } from '@/app/api/import/route';
 import { GET as LIST_BANKS, POST as IMPORT_BANK } from '@/app/api/question-banks/route';
+import { POST as ADD_BANK_QUESTION } from '@/app/api/question-banks/[id]/questions/[qid]/route';
+import { DELETE as DELETE_BANK } from '@/app/api/question-banks/[id]/route';
 import { selectBankQuestion } from '@/lib/question-bank/selection';
 import { POST as GENERATE_PRACTICE } from '@/app/api/practice/generate/route';
 import { sanitizeFigureSvg } from '@/lib/figure-svg';
@@ -39,11 +41,12 @@ import type { BackupExtension } from '@/lib/backup-extensions';
 let database: PrismaClient;
 let directory: string;
 const figure = sanitizeFigureSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>')!;
+const figureImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const animation = (text: string) => sanitizeSvgAnimation(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text x="1" y="5">${text}<animate attributeName="opacity" from="0" to="1" dur="1s"/></text></svg>`)!;
 const lastPractice = JSON.stringify({ questionText: '新题', answerText: '答案', analysis: '解析', figureSvg: figure, difficulty: 'medium', generatedAt: '2026-10-20T00:00:00.000Z' });
 
-async function exportBackup() {
-    const response = await EXPORT(new Request('http://localhost/api/export'));
+async function exportBackup(query = '') {
+    const response = await EXPORT(new Request(`http://localhost/api/export${query}`));
     expect(response.status).toBe(200);
     return response.json();
 }
@@ -68,6 +71,7 @@ async function clearUserData() {
     await database.knowledgeTag.deleteMany({ where: { userId: 'user-1' } });
     await database.knowledgeTag.deleteMany({ where: { isSystem: true } });
     await database.practiceRecord.deleteMany({ where: { userId: 'user-1' } });
+    await database.practiceQuestion.deleteMany({ where: { userId: 'user-1' } });
     await database.importTask.deleteMany({ where: { userId: 'user-1' } });
     await database.importBatch.deleteMany({ where: { userId: 'user-1' } });
     await database.reviewSchedule.deleteMany();
@@ -91,9 +95,11 @@ beforeAll(() => {
 
 beforeEach(async () => {
     mocks.scheduleMasteryEvaluation.mockClear();
+    mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'user' }, expires: '2099-01-01' };
     // 清理所有可能残留的数据（包括系统标签），确保每个测试从干净状态开始
     await database.reviewSchedule.deleteMany();
     await database.practiceRecord.deleteMany();
+    await database.practiceQuestion.deleteMany();
     await database.examPaper.deleteMany();
     await database.questionBank.deleteMany();
     await database.errorItem.deleteMany();
@@ -116,6 +122,7 @@ beforeEach(async () => {
             questionText: '求解 x + 2 = 5', answerText: 'x = 3', analysis: '移项', wrongAnswerText: 'x = 7', mistakeAnalysis: '符号错误',
             mistakeStatus: 'wrong_attempt', source: '期中考试', errorType: '计算', userNotes: '注意符号', gradeSemester: '初二上',
             paperLevel: 'group-b', difficultyStars: 3, hasFigure: true, figureSvg: figure, figureScale: 65, figureAlign: 'left', answerSpacePx: 240,
+            figureImage, figureSource: 'image',
             geogebraCommands: 'A=(0,0)\nB=(1,1)', svgAnimation: animation('中文'), svgAnimationEn: animation('English'), lastPractice,
             masteryLevel: 2, masteryProbability: 0.8, masteryReason: '连续答对', masterySource: 'ai', masteryEvaluatedAt: new Date('2026-10-21T00:00:00Z'),
             createdAt: new Date('2026-10-01T00:00:00Z'), updatedAt: new Date('2026-10-21T00:00:00Z'),
@@ -133,11 +140,19 @@ beforeEach(async () => {
         },
     });
     await database.reviewSchedule.create({ data: { errorItemId: 'item-1', scheduledFor: new Date('2026-11-01T00:00:00Z') } });
+    await database.practiceQuestion.create({
+        data: {
+            id: 'pq-1', userId: 'user-1', errorItemId: 'item-1', subject: '数学', difficulty: 'medium', source: 'ai',
+            questionText: '新题', answerText: '答案', analysis: '解析', figureSvg: figure,
+            generatedAt: new Date('2026-10-20T00:00:00Z'), createdAt: new Date('2026-10-20T00:00:00Z'),
+        },
+    });
     await database.practiceRecord.create({
         data: {
             userId: 'user-1', errorItemId: 'item-1', subject: 'math', difficulty: 'medium', isCorrect: true, result: 'correct',
             questionText: '变式题', answerText: 'x = 4', analysis: '同理', figureSvg: figure, source: 'practice',
             createdAt: new Date('2026-10-20T00:00:00Z'),
+            practiceQuestionId: 'pq-1',
         },
     });
 });
@@ -192,9 +207,9 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(await database.knowledgeTag.count({ where: { name: '我的句式笔记' } })).toBe(1);
     });
 
-    it('导出文件使用第 15 版格式，包含 tagSet 字段、空的 extensions 与试卷 mode', async () => {
+    it('导出文件使用第 18 版格式，包含 tagSet、练习生成题与空的 extensions', async () => {
         const backup = await exportBackup();
-        expect(backup.version).toBe(15);
+        expect(backup.version).toBe(18);
         expect(backup.extensions).toEqual({});
         expect(backup.paperGroups).toContainEqual(expect.objectContaining({ id: 'group-b', key: 'b', name: 'B卷' }));
         expect(backup.systemTags).toBeDefined();
@@ -216,12 +231,19 @@ describe('数据导出后再导入（真实 SQLite）', () => {
                 expect.objectContaining({ id: 'tag-2', tagSet: 'cn-math-taxonomy' }),
             ])
         );
+        expect(backup.practiceQuestions).toEqual(
+            expect.arrayContaining([expect.objectContaining({ id: 'pq-1', questionText: '新题', figureSvg: figure })])
+        );
+        expect(backup.practiceRecords).toEqual(
+            expect.arrayContaining([expect.objectContaining({ practiceQuestionId: 'pq-1' })])
+        );
     });
 
     it('真题库与题目随备份往返，按 ID 去重且不影响错题', async () => {
+        mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
         await database.questionBank.create({
             data: {
-                id: 'bank-1', userId: 'user-1', name: '小学数学题库', stage: 'primary', subjectKey: 'math',
+                id: 'bank-1', name: '小学数学题库', stage: 'primary', subjectKey: 'math',
                 gradeRange: '[1,2,3,4,5,6]', source: 'cn-math-taxonomy', license: 'CC BY-NC 4.0', questionCount: 2,
                 createdAt: new Date('2026-11-01T00:00:00Z'),
                 questions: {
@@ -242,14 +264,15 @@ describe('数据导出后再导入（真实 SQLite）', () => {
                 },
             },
         });
-        const backup = await exportBackup();
+        const backup = await exportBackup('?all=true');
         expect(backup.questionBanks).toContainEqual(expect.objectContaining({
             id: 'bank-1', name: '小学数学题库', questionCount: 2,
             questions: expect.arrayContaining([expect.objectContaining({ id: 'bank-q-1', text: '3 的后面一个数是几？' })]),
         }));
+        expect(backup.questionBanks[0]).not.toHaveProperty('userId');
 
         await clearUserData();
-        const { stats } = await importBackup(backup);
+        const { stats } = await importBackup(backup, '?all=true');
         expect(stats).toMatchObject({ questionBanksCreated: 1, bankQuestionsCreated: 2, errorItemsCreated: 2 });
 
         const restored = await database.questionBank.findFirstOrThrow({ where: { id: 'bank-1' }, include: { questions: true } });
@@ -261,12 +284,13 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(restored.questions.find((question) => question.id === 'bank-q-2')?.optionsJson).toBe('{"A":"1+1=3","B":"2+2=4"}');
 
         // 重复导入按原 ID 跳过，不产生重复题库或题目
-        await importBackup(backup);
-        expect(await database.questionBank.count({ where: { userId: 'user-1' } })).toBe(1);
+        await importBackup(backup, '?all=true');
+        expect(await database.questionBank.count()).toBe(1);
         expect(await database.bankQuestion.count()).toBe(2);
     });
 
     it('真题库导入默认不进错题，可选写入；按知识点从题库选题', async () => {
+        mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
         const file = {
             format: 'wrong-notebook-question-bank',
             version: 1,
@@ -291,7 +315,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         const itemsBefore = await database.errorItem.count({ where: { userId: 'user-1' } });
         const first = await post({ file });
         expect(first.status).toBe(201);
-        expect(await database.questionBank.count({ where: { userId: 'user-1' } })).toBe(1);
+        expect(await database.questionBank.count()).toBe(1);
         expect(await database.bankQuestion.count()).toBe(2);
         // 默认只进入真题库，不产生错题
         expect(await database.errorItem.count({ where: { userId: 'user-1' } })).toBe(itemsBefore);
@@ -301,7 +325,6 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect((await list.json()).banks).toContainEqual(expect.objectContaining({ name: '小学数学题库', questionCount: 2 }));
 
         const selected = await selectBankQuestion({
-            userId: 'user-1',
             errorItem: {
                 id: 'item-1',
                 questionText: '求解 x + 2 = 5',
@@ -336,6 +359,103 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(duplicateName.status).toBe(409);
     });
 
+    it('真题库全站共享：一个账号导入后其他账号可见、可选并加入自己的错题本', async () => {
+        const originalSession = mocks.session;
+        const file = {
+            format: 'wrong-notebook-question-bank',
+            version: 1,
+            meta: { id: 'shared-primary-math', title: '共享小学数学', stage: 'primary', subject: 'math', grades: [1], count: 1, tagged: true, source: 'test-source', license: 'MIT' },
+            questions: [{ id: 'q1', grade: 1, semester: '上', questionType: 'fill_blank', difficultyStars: 2,
+                text: '3 的后面一个数是几？', answer: '4', analysis: '从 1 往后数。', knowledgePoints: ['数的认识'] }],
+        };
+        const postBank = () => IMPORT_BANK(new Request('http://localhost/api/question-banks', {
+            method: 'POST',
+            body: JSON.stringify({ file }),
+            headers: { 'Content-Type': 'application/json' },
+        }));
+        await database.user.create({ data: { id: 'user-2', email: 'member@example.com', password: 'test-only' } });
+        try {
+            // 普通账号不能导入题库，管理员导入后题库全站可见
+            mocks.session = { user: { id: 'user-2', email: 'member@example.com', role: 'user' }, expires: '2099-01-01' };
+            expect((await postBank()).status).toBe(403);
+            mocks.session = { user: { id: 'user-2', email: 'member@example.com', role: 'admin' }, expires: '2099-01-01' };
+            expect((await postBank()).status).toBe(201);
+            expect(await database.questionBank.count()).toBe(1);
+
+            mocks.session = originalSession;
+            const list = await LIST_BANKS(new Request('http://localhost/api/question-banks'));
+            expect((await list.json()).banks).toContainEqual(expect.objectContaining({ name: '共享小学数学', questionCount: 1 }));
+
+            const selected = await selectBankQuestion({
+                errorItem: {
+                    id: 'item-1',
+                    questionText: '求解 x + 2 = 5',
+                    subject: { name: '数学', stage: 'primary', subjectKey: 'math' },
+                },
+                tagNames: ['数的认识'],
+                difficulty: 'medium',
+            });
+            expect(selected?.bankName).toBe('共享小学数学');
+
+            // 账号 1 可把共享题库的题目写入自己的错题本
+            await database.subject.create({ data: { id: 'shared-math', name: '共享数学', stage: 'primary', subjectKey: 'math', userId: 'user-1' } });
+            const bankQuestion = await database.bankQuestion.findFirstOrThrow({ where: { externalId: 'q1' } });
+            const added = await ADD_BANK_QUESTION(new Request('http://localhost/api/question-banks', {
+                method: 'POST',
+                body: JSON.stringify({ notebookId: 'shared-math' }),
+                headers: { 'Content-Type': 'application/json' },
+            }), { params: Promise.resolve({ id: bankQuestion.bankId, qid: bankQuestion.id }) });
+            expect(added.status).toBe(200);
+            expect(await database.errorItem.count({ where: { userId: 'user-1', subjectId: 'shared-math' } })).toBe(1);
+
+            // 名称查重全站生效；普通账号不能删除题库
+            mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
+            expect((await postBank()).status).toBe(409);
+            mocks.session = originalSession;
+            expect((await DELETE_BANK(new Request('http://localhost/api/question-banks'), {
+                params: Promise.resolve({ id: bankQuestion.bankId }),
+            })).status).toBe(403);
+            mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
+            expect((await DELETE_BANK(new Request('http://localhost/api/question-banks'), {
+                params: Promise.resolve({ id: bankQuestion.bankId }),
+            })).status).toBe(200);
+            expect(await database.questionBank.count()).toBe(0);
+        } finally {
+            mocks.session = originalSession;
+        }
+    });
+
+    it('个人备份不含真题库，普通账号导入不写题库', async () => {
+        await database.questionBank.create({
+            data: {
+                id: 'bank-personal', name: '个人导出题库', stage: 'primary', subjectKey: 'math', questionCount: 1,
+                createdAt: new Date('2026-11-01T00:00:00Z'),
+                questions: {
+                    create: {
+                        id: 'bank-personal-q', stage: 'primary', text: '题目', knowledgePoints: '[]',
+                        createdAt: new Date('2026-11-01T00:00:00Z'),
+                    },
+                },
+            },
+        });
+        const userBackup = await exportBackup();
+        expect(userBackup.questionBanks).toEqual([]);
+
+        // 旧版个人备份可能携带题库：普通账号导入时忽略，避免改动全站题库
+        const body = {
+            ...userBackup,
+            questionBanks: [{
+                id: 'bank-personal', name: '个人导出题库', stage: 'primary', subjectKey: 'math', questionCount: 1,
+                createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+                questions: [{ id: 'bank-personal-q', stage: 'primary', text: '题目', knowledgePoints: '[]', createdAt: '2026-11-01T00:00:00.000Z' }],
+            }],
+        };
+        await clearUserData();
+        const { stats } = await importBackup(body);
+        expect(stats.questionBanksCreated).toBe(0);
+        expect(await database.questionBank.count()).toBe(0);
+    });
+
     it('遥测记录与协议、遥测设置属于实例数据，不进入备份', async () => {
         await database.telemetryEvent.create({ data: { name: 'app_opened', payload: '{"client":"browser"}', version: 'test', local: true } });
         await database.telemetryError.create({ data: { kind: 'client', scope: 'x', name: 'Error', fingerprint: '0123456789abcdef', version: 'test', local: true } });
@@ -352,7 +472,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         const backup = await exportBackup();
         await clearUserData();
         const { stats } = await importBackup(backup);
-        expect(stats).toMatchObject({ errorItemsCreated: 2, practiceRecordsCreated: 1, reviewSchedulesCreated: 1, tagsLinked: 4 });
+        expect(stats).toMatchObject({ errorItemsCreated: 2, practiceRecordsCreated: 1, practiceQuestionsCreated: 1, reviewSchedulesCreated: 1, tagsLinked: 4 });
 
         const item = await database.errorItem.findFirstOrThrow({ where: { userId: 'user-1', shortId: 'AbC234' }, include: { tags: true, subject: true, paperGroup: true } });
         expect(item).toMatchObject({
@@ -373,8 +493,12 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(cnmTag?.tagSet).toBe('cn-math-taxonomy');
         expect(cnmTag?.id).not.toBe('sys-default');
 
+        expect(await database.practiceQuestion.findFirstOrThrow({ where: { userId: 'user-1' } })).toMatchObject({
+            questionText: '新题', answerText: '答案', analysis: '解析', figureSvg: figure, source: 'ai', difficulty: 'medium',
+        });
         const record = await database.practiceRecord.findFirstOrThrow({ where: { errorItemId: item.id } });
         expect(record).toMatchObject({ result: 'correct', questionText: '变式题', figureSvg: figure, source: 'practice' });
+        expect(record.practiceQuestionId).toBeTruthy();
         // 已带掌握概率导入，不重复评估
         expect(mocks.scheduleMasteryEvaluation).not.toHaveBeenCalled();
     });
@@ -389,6 +513,8 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(item.figureScale).toBe(100);
         expect(item.figureAlign).toBe('center');
         expect(item.figureSvg).toBe(figure);
+        expect(item.figureImage).toBe(figureImage);
+        expect(item.figureSource).toBe('image');
     });
 
     it('题型字段随备份往返，旧版文件没有该字段时导入为 null', async () => {
@@ -680,11 +806,14 @@ describe('数据导出后再导入（真实 SQLite）', () => {
             svgAnimationEn: 'not svg',
             lastPractice: '{"questionText":""}',
             masteryProbability: 3,
+            figureImage: 'data:image/png;base64,not-valid-***',
         });
         await importBackup(backup);
         const item = await database.errorItem.findFirstOrThrow({ where: { userId: 'user-1' } });
         expect(item.svgAnimation).not.toContain('script');
         expect(item.svgAnimationEn).toBeNull();
+        expect(item.figureImage).toBeNull();
+        expect(item.figureSource).toBe('svg');
         expect(item.lastPractice).toBeNull();
         expect(item.masteryProbability).toBeNull();
         expect(mocks.scheduleMasteryEvaluation).toHaveBeenCalledWith([item.id]);
@@ -788,7 +917,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(response.status).toBe(200);
         const compressed = Buffer.from(await response.arrayBuffer());
         expect([compressed[0], compressed[1]]).toEqual([0x1f, 0x8b]);
-        expect(JSON.parse(gunzipSync(compressed).toString('utf8')).version).toBe(15);
+        expect(JSON.parse(gunzipSync(compressed).toString('utf8')).version).toBe(18);
 
         await clearUserData();
         const imported = await IMPORT(new Request('http://localhost/api/import', {

@@ -97,6 +97,8 @@ export interface ErrorItem {
     difficultyStars?: number | null; // 难度星级 1~5
     hasFigure?: boolean;             // 是否有配图
     figureSvg?: string | null;       // AI 重绘的 SVG 配图
+    figureImage?: string | null;     // 识别时裁剪的原配图（PNG data URI）
+    figureSource?: 'svg' | 'image' | string | null; // 配图显示来源
     figureScale?: number;            // 配图显示与打印比例，默认 100%
     figureAlign?: 'left' | 'center' | 'right' | string; // 配图显示与打印位置，默认 center
     answerSpacePx?: number | null;   // 打印时手动设置的题下留白（px），为空时按全局档位
@@ -114,7 +116,7 @@ export type ErrorItemSummary = Pick<ErrorItem,
 
 /** 打印所需内容，独立于完整详情与列表卡片的数据类型。 */
 export type PrintableErrorItem = ErrorItemSummary & Pick<ErrorItem,
-    'originalImageUrl' | 'answerText' | 'analysis' | 'figureSvg' | 'figureScale' | 'figureAlign' | 'answerSpacePx' | 'gradeSemester' | 'paperLevel'
+    'originalImageUrl' | 'answerText' | 'analysis' | 'figureSvg' | 'figureImage' | 'figureSource' | 'figureScale' | 'figureAlign' | 'answerSpacePx' | 'gradeSemester' | 'paperLevel'
 > & { subject?: Pick<Notebook, 'name'> | null };
 
 // For creation/updates
@@ -427,6 +429,55 @@ export interface PracticeHistoryResponse {
     /** 当前用户的已掌握阈值（百分比） */
     masteryThreshold: number;
     records: PracticeHistoryRecord[];
+}
+
+/** 智能练习历史题（独立生成题实体） */
+export interface PracticeQuestionSummary {
+    id: string;
+    questionText: string;
+    difficulty: string | null;
+    source: string;
+    generatedAt: string;
+    createdAt: string;
+    errorItem: {
+        id: string;
+        shortId: string | null;
+        seqNo: number | null;
+        questionText: string | null;
+        subject: { id: string; name: string } | null;
+    } | null;
+    attemptCount: number;
+    lastAttempt: { id: string; result: string | null; isCorrect: boolean | null; createdAt: string } | null;
+}
+
+export interface PracticeQuestionListResponse {
+    page: number;
+    pageSize: number;
+    total: number;
+    hasMore: boolean;
+    items: PracticeQuestionSummary[];
+}
+
+export interface PracticeQuestionAttempt {
+    id: string;
+    result: string | null;
+    isCorrect: boolean | null;
+    createdAt: string;
+}
+
+export interface PracticeQuestionDetail {
+    id: string;
+    subject: string | null;
+    difficulty: string | null;
+    source: string;
+    questionText: string;
+    answerText: string;
+    analysis: string;
+    figureSvg: string | null;
+    generatedAt: string;
+    createdAt: string;
+    errorItem: PracticeQuestionSummary["errorItem"];
+    attempts: PracticeQuestionAttempt[];
 }
 
 // ============ 错题试卷 ============

@@ -82,6 +82,10 @@ export async function GET(req: Request) {
             where: userFilter,
         });
 
+        const practiceQuestions = await prisma.practiceQuestion.findMany({
+            where: userFilter,
+        });
+
         const examPapers = await prisma.examPaper.findMany({
             where: userFilter,
             include: {
@@ -93,12 +97,14 @@ export async function GET(req: Request) {
             where: userFilter,
         });
 
-        const questionBanks = await prisma.questionBank.findMany({
-            where: userFilter,
-            include: {
-                questions: { orderBy: { createdAt: 'asc' } },
-            },
-        });
+        // 真题库为全站共享：整站备份（all=true）包含全部题库，个人备份不包含
+        const questionBanks = exportAll
+            ? await prisma.questionBank.findMany({
+                include: {
+                    questions: { orderBy: { createdAt: 'asc' } },
+                },
+            })
+            : [];
 
         // 待校对任务与未完成批次不再进入备份（第 13 版）：它们带整页图片，只在原设备继续处理
         const importBatches: unknown[] = [];
@@ -144,6 +150,7 @@ export async function GET(req: Request) {
             })),
             reviewSchedules,
             practiceRecords,
+            practiceQuestions,
             examPapers: examPapers.map((paper) => ({
                 ...paper,
                 questions: paper.questions.map((question) => ({
@@ -171,6 +178,7 @@ export async function GET(req: Request) {
             errorItemsCount: errorItems.length,
             reviewSchedulesCount: reviewSchedules.length,
             practiceRecordsCount: practiceRecords.length,
+            practiceQuestionsCount: practiceQuestions.length,
             examPapersCount: examPapers.length,
             importTasksCount: importTasks.length,
             importBatchesCount: importBatches.length,

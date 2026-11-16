@@ -39,6 +39,7 @@ model User {
   errorItems ErrorItem[]
   subjects   Subject[]
   practiceRecords PracticeRecord[]
+  practiceQuestions PracticeQuestion[]
   customTags KnowledgeTag[] // User's custom tags
   examPapers ExamPaper[]
   aiUsages   AiUsage[]
@@ -46,15 +47,12 @@ model User {
   paperGroups PaperGroup[]
   importTasks ImportTask[]
   importBatches ImportBatch[]
-  questionBanks QuestionBank[]
 }
 
-/// 用户导入的真题库：共享题库包或本地题库文件的结构化副本，独立于错题本
+/// 全站共享的真题库：共享题库包或本地题库文件的结构化副本，独立于错题本，所有账号共用
 model QuestionBank {
   id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name          String   // 显示名，同一用户内唯一
+  name          String   // 显示名，全站唯一（由应用层校验）
   description   String?
   stage         String   // primary / junior_high / senior_high / university
   subjectKey    String?  // math / english / ...
@@ -68,8 +66,7 @@ model QuestionBank {
   updatedAt     DateTime @updatedAt
   questions     BankQuestion[]
 
-  @@unique([userId, name])
-  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 /// 真题库中的单题；知识点存名称 JSON，按名称与错题标签匹配选题
@@ -211,6 +208,8 @@ model ErrorItem {
   difficultyStars  Int?    // 难度星级 1~5（参考高思导引星级），未评定时为空
   hasFigure        Boolean @default(false) // 识别时判断题目是否有配图
   figureSvg        String? // AI 用 SVG 重绘的题目配图（已净化），显示和打印时使用
+  figureImage       String? // 识别时裁剪的原配图（PNG data URI），化学结构式等复杂图形可直接显示原图
+  figureSource      String  @default("svg") // 配图显示来源：svg（AI 重绘）| image（裁剪原图）
   figureScale      Int     @default(100) // 配图显示与打印比例，10~200%
   figureAlign      String  @default("center") // 配图显示与打印位置：left | center | right
   answerSpacePx    Int?    // 打印时手动设置的题下留白高度（0~600 px），为空时按全局留白档位
@@ -227,6 +226,7 @@ model ErrorItem {
 
   reviewSchedules ReviewSchedule[]
   practiceRecords PracticeRecord[]
+  practiceQuestions PracticeQuestion[]
   examQuestions   ExamQuestion[]
   importTasks     ImportTask[]
   
@@ -274,12 +274,41 @@ model PracticeRecord {
   // 试卷题目可多次录入结果，每次一条记录
   examQuestionId String?
   examQuestion   ExamQuestion? @relation(fields: [examQuestionId], references: [id], onDelete: SetNull)
+  // 智能练习历史题：作答记录引用生成题，题目删除后记录仍保留
+  practiceQuestionId String?
+  practiceQuestion   PracticeQuestion? @relation(fields: [practiceQuestionId], references: [id], onDelete: SetNull)
   
   createdAt DateTime @default(now())
 
   @@index([errorItemId, createdAt])
   @@index([examQuestionId])
   @@index([userId, createdAt])
+  @@index([practiceQuestionId])
+}
+
+/// 一次成功生成的智能练习题目：重新生成新增一条，作答记录引用该题
+model PracticeQuestion {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  errorItemId String?
+  errorItem   ErrorItem? @relation(fields: [errorItemId], references: [id], onDelete: SetNull)
+
+  subject      String?
+  difficulty   String? // easy | medium | hard | harder
+  source       String @default("ai") // ai | bank | bankVariant
+  questionText String
+  answerText   String
+  analysis     String
+  figureSvg    String?
+
+  generatedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  attempts PracticeRecord[]
+
+  @@index([userId, createdAt])
+  @@index([errorItemId, createdAt])
 }
 
 // 随机错题试卷

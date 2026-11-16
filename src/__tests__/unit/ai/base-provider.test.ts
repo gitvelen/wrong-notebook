@@ -291,7 +291,7 @@ describe('BaseAIProvider', () => {
                 .mockResolvedValueOnce(invalid)
                 .mockResolvedValueOnce(`<figure_svg>${fixedSvg}</figure_svg>`);
             const figure = await provider.generateFigureSvg('QUJD', 'image/jpeg');
-            expect(figure).toEqual({ hasFigure: true, figureSvg: fixedSvg });
+            expect(figure).toEqual({ hasFigure: true, figureSvg: fixedSvg, figureImage: null });
             const fixRequest = provider.completeText.mock.calls[1][0];
             expect(fixRequest.task).toBe('figure');
             expect(fixRequest.image).toBeUndefined();
@@ -323,6 +323,7 @@ describe('BaseAIProvider', () => {
                 expect(reviewRequest.system).toContain('各宽 800 像素、高 468 像素');
                 expect(JSON.parse(reviewRequest.user).data.figureSvg).toBe(drawn);
                 expect(figure.figureSvg).toBe(revised);
+                expect(figure.figureImage).toBe('data:image/png;base64,Q1JPUA==');
             });
 
             it('模型认为一致（不输出 SVG）或调用失败时保留原 SVG', async () => {
@@ -356,10 +357,10 @@ describe('BaseAIProvider', () => {
 
         it('修正后仍不合法或修正调用失败时丢弃配图，保留有配图的判断', async () => {
             provider.completeText.mockResolvedValueOnce(invalid).mockResolvedValueOnce(invalid);
-            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null });
+            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null, figureImage: null });
 
             provider.completeText.mockResolvedValueOnce(invalid).mockRejectedValueOnce(new Error('AI_TIMEOUT_ERROR'));
-            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null });
+            expect(await provider.generateFigureSvg('QUJD', 'image/jpeg')).toEqual({ hasFigure: true, figureSvg: null, figureImage: null });
         });
     });
 
@@ -390,6 +391,21 @@ describe('BaseAIProvider', () => {
             expect(provider.completeText).toHaveBeenCalledWith(expect.objectContaining({
                 task: 'question-split',
                 image: { base64: 'QUJD', mimeType: 'image/png' },
+            }));
+        });
+
+        it('多页分题时按页码顺序附带 images，不附带单图 image', async () => {
+            await provider.splitQuestions({
+                kind: 'image', imageBase64: '', mimeType: 'image/jpeg', language: 'zh',
+                pages: [
+                    { page: 2, imageBase64: 'REVG', mimeType: 'image/jpeg' },
+                    { page: 1, imageBase64: 'QUJD', mimeType: 'image/png' },
+                ],
+            });
+            expect(provider.completeText).toHaveBeenCalledWith(expect.objectContaining({
+                task: 'question-split',
+                image: undefined,
+                images: [{ base64: 'QUJD', mimeType: 'image/png' }, { base64: 'REVG', mimeType: 'image/jpeg' }],
             }));
         });
 
