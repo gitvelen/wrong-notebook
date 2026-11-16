@@ -19,6 +19,7 @@ function runTransform(input: unknown): Record<string, unknown> {
 interface TestErrorItem {
     id: string;
     originalImageUrl: string;
+    figureImage?: string | null;
     questionText: string | null;
     [key: string]: unknown;
 }
@@ -48,6 +49,8 @@ const fixture = {
             userId: 'u1',
             subjectId: null,
             originalImageUrl: 'data:image/png;base64,AAAA',
+            figureImage: 'data:image/png;base64,FFFF',
+            figureSource: 'image',
             ocrText: null,
             questionText: '题目内容',
             answerText: null,
@@ -104,6 +107,8 @@ describe('git-backup 剥离图片', () => {
 
         const errorItems = output.errorItems as TestErrorItem[];
         expect(errorItems[0]?.originalImageUrl).toBe('');
+        // 第 17 版起导出的裁剪原配图同样剥离，导入侧回退到 AI 重绘的 SVG
+        expect(errorItems[0]?.figureImage).toBeNull();
         expect(errorItems[0]?.questionText).toBe('题目内容');
 
         const questions = (output.examPapers as { questions: TestExamQuestion[] }[])[0]?.questions ?? [];

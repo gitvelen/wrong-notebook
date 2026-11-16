@@ -26,6 +26,7 @@ const BACKUP_FILE = 'data-backup/backup.json';
 /**
  * 剥离备份对象中的图片数据，保持结构不变：
  * - 错题原图（originalImageUrl，base64 data URL）置空字符串
+ * - 错题裁剪原配图（figureImage，PNG data URI，备份第 17 版起导出）置 null，导入侧回退到 AI 重绘的 SVG
  * - 试卷题目与练习记录快照中的原题截图置 null（导入侧这两处可空）
  * - 识别导入任务/多题批次的整页图片（imageData）置空字符串
  * - exportedAt 清零：变更检测基于实际数据，避免每天生成仅时间戳不同的提交
@@ -35,7 +36,10 @@ export function stripBackupImages(backup) {
     out.exportedAt = '';
     if (Array.isArray(out.errorItems)) {
         for (const item of out.errorItems) {
-            if (item && typeof item === 'object' && 'originalImageUrl' in item) item.originalImageUrl = '';
+            if (item && typeof item === 'object') {
+                if ('originalImageUrl' in item) item.originalImageUrl = '';
+                if ('figureImage' in item) item.figureImage = null;
+            }
         }
     }
     for (const key of ['practiceRecords', 'examPapers']) {
