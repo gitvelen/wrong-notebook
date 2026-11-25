@@ -38,6 +38,7 @@ describe("parseBackupFile", () => {
                 enableGeogebra: false,
                 enableSvgAnimation: true,
                 themePreference: "system",
+                mobileNavFourth: "exams",
             },
             subjects: [],
             systemTags: [],
@@ -72,6 +73,24 @@ describe("parseBackupFile", () => {
             version: 1,
             user: { id: "u1", email: "a@example.com" },
             errorItems: {},
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("拒绝 errorItems 中的 null 项", () => {
+        const result = parseBackupFile({
+            version: 1,
+            user: { id: "u1", email: "a@example.com" },
+            errorItems: [null],
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("拒绝缺少题目 ID 的嵌套对象", () => {
+        const result = parseBackupFile({
+            version: BACKUP_VERSION,
+            user: { id: "u1", email: "a@example.com" },
+            errorItems: [{ questionText: "题目" }],
         });
         expect(result.success).toBe(false);
     });

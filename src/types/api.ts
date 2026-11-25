@@ -154,6 +154,8 @@ export interface UserProfile {
     enableSvgAnimation?: boolean;
     /** 界面主题偏好：system / light / dark */
     themePreference?: string;
+    /** 手机底部第 4 个入口：exams / review */
+    mobileNavFourth?: 'exams' | 'review';
     questionDuplicateThreshold?: number;
     masteryThreshold?: number;
 }
@@ -163,6 +165,7 @@ export interface UpdateUserProfileRequest {
     fixedGradeSemester?: string | null;
     questionDuplicateThreshold?: number;
     masteryThreshold?: number;
+    mobileNavFourth?: 'exams' | 'review';
     name?: string;
     email?: string;
     educationStage?: string;
@@ -217,6 +220,7 @@ export interface AppConfig extends VendorConfigs {
         model?: string;
     };
     minimaxCode?: MiniMaxCodeConfig;
+    minimaxCodeGlobal?: MiniMaxCodeConfig;
     /** 渠道分工：识别与文本分析可分开使用不同渠道，额度用完时改用备用渠道 */
     routing?: {
         vision?: AiProviderId | '';
@@ -512,6 +516,10 @@ export interface ExamQuestionDetail {
     answerText: string | null;
     analysis: string | null;
     figureSvg?: string | null;
+    /** 来源错题识别时裁剪的原配图快照（PNG data URI） */
+    figureImage?: string | null;
+    /** 配图显示来源：svg（AI 重绘）| image（裁剪原图） */
+    figureSource?: 'svg' | 'image' | string | null;
     figureScale?: number;
     figureAlign?: 'left' | 'center' | 'right' | string;
     /** 打印时手动设置的题下留白（px），为空时按全局档位 */
@@ -524,6 +532,8 @@ export interface ExamQuestionDetail {
     errorItemQuestionType?: QuestionType | null;
     error: string | null;
     notebookName: string | null;
+    /** 来源错题流水号，用于按编号设置显示 */
+    sourceSeqNo?: number | null;
     /** 历次录入的结果，按时间正序 */
     attempts: ExamQuestionAttempt[];
 }

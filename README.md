@@ -28,7 +28,7 @@
   | 浏览器本地语音（Web Speech） | 由设备自带的语音朗读，听起来比较生硬，音色因设备而异 | 免费 |
   | 云端 TTS 语音（MiniMax、千问、智谱 GLM-TTS、阶跃星辰、火山引擎豆包语音、火山引擎 Agent Plan、OpenAI） | 声音自然，与真人讲题无异，所有设备音色一致 | 需要付费，**建议购买 Token Plan 等套餐**，比按量付费划算；火山引擎有[免费试用额度](https://docs.volcengine.com/docs/ark/free-inference-quota?lang=zh)，可参考文档自行开通 |
 
-- **🆓 免费账号就能用**：选择「MiniMax Code OAuth」渠道，用 MiniMax Code 账号网页登录即可使用，不需要购买 API Key，应用每天自动签到领取积分（见 [MiniMax Code OAuth](#minimax-code-oauth)）；火山引擎新用户也有[免费推理额度](#火山引擎免费试用)。
+- **🆓 免费账号就能用**：选择「MiniMax Code OAuth」渠道，用 MiniMax Code 账号网页登录即可使用，不需要购买 API Key，应用每天自动签到领取积分（见 [MiniMax Code OAuth](#minimax-code-oauth)）；「硅基流动 SiliconFlow」国内站注册并实名认证后有免费文字模型，国际站新用户有 $1 赠金（见 [硅基流动](#硅基流动)）；火山引擎新用户也有[免费推理额度](#火山引擎免费试用)。
 - **📚 复习闭环**：举一反三变式题自动判题、AI 评估掌握概率、艾宾浩斯间隔的今日复习、按错题组卷打印并回填结果。
 - **🗂️ 共享真题库**：新增「真题库」页，可从 [margrop/wrong-notebook-question-bank](https://github.com/margrop/wrong-notebook-question-bank) 下载小学、初中、高中多学科题库包；导入默认只进入真题库、不产生错题，也可勾选同时写入错题本。题库全站共享，由管理员导入和管理（重命名、删除题库或题目），所有账号共用同一份题库，题目可分别加入各自的错题本。举一反三可按知识点从真题库选题（不消耗 AI 额度），也可选「真题库变式」：先选出题库题目，再由 AI 以该题为原题生成变式题。
 - **📦 多平台安装**：Docker 镜像（amd64 / arm64）、npm、Windows、macOS、Linux、飞牛OS、群晖/威联通套件、安卓手机与平板（单机版或客户端），也可添加到手机主屏幕（PWA）。
@@ -60,7 +60,7 @@
 
 「导入题库文件」支持 JSON（题目交换格式 v1）、Word（.docx）、Excel（.xlsx）、CSV 与 PDF 题库文件，解析后展示摘要（题数、错误原因、警告、暂未导入字段），选择目标错题本后按批次进入导入中心，可「按原样入库」不调用 AI；一次最多导入 2000 题。导入页可下载 Excel / CSV 模板。TXT / Markdown 文件仍在「手动输入」中经「从文件导入」填入文字框。PDF 必须带文字层；扫描版 PDF 可选择页码范围（单次最多 20 页）转为图片，整份 PDF 作为一个识别任务由 AI 分题导入（消耗一次 AI 分题额度）：跨页的同一道题会合并为一道，材料自带的答案页会按题号摘出答案，可「按原样入库」或「AI 只补知识点和难度」，避免 AI 重新解答。页面按输出上限放大（A4 约 225 DPI）。带文字层的 PDF 默认给每道题按版面区域截图作为题目原图（可改为只截有图形的题或不保存），公式与图形不会因文字层乱码而丢失。
 
-直接录入和人工校对保存失败时，页面会保留具体原因及处理建议，区分 AI 年级识别、字段长度或卷别校验、登录状态、数据库迁移与写入权限、网络或代理等问题。AI 年级识别失败时，可手动填写年级或改用固定年级后再保存；超时或断网后先确认错题本中是否已保存，避免重复提交。
+直接录入和人工校对保存失败时，页面会保留具体原因及处理建议，区分 AI 年级识别、字段长度或卷别校验、登录状态、数据库迁移与写入权限、网络或代理等问题。卷别可以留空，由系统按难度及仍启用的默认分组决定归属；如果手工选的卷别已不可用，可以保留草稿，在原页面重新选择后保存。AI 年级识别失败时，可手动填写年级或改用固定年级后再保存；超时或断网后先确认错题本中是否已保存，避免重复提交。
 
 ![首页的拍照上传、手动输入、直接录入、剪贴板粘贴和截屏入口](doc/screenshots/upload.png)
 
@@ -156,8 +156,9 @@
 
 - **∑ LaTeX 公式**：题目、答案和解析中的公式用 KaTeX 显示，支持 `$…$`、`$$…$$`、`\(…\)`、`\[…\]`；编辑时可在「源代码 / 预览」之间切换。检测到公式语法错误时，详情页出现「修复 LaTeX」按钮，由 AI 只修复公式写法。
 - **📝 重新生成解答**：详情页「重新生成完整解答」由 AI 重新生成答案和解析（覆盖前二次确认），知识点和错因保持不变。
-- **🖼️ 题目配图**：识别时 AI 先定位配图，再把配图区域裁剪出来单独用 SVG 重绘（先逐项列出线段、箭头和标注再作图，生成后校验 SVG 是否合法），详情页、打印和试卷都使用 SVG 配图；有配图的错题可在详情页设置「配图显示比例」（10%～200%，默认 100%）与「配图显示位置」（居左/居中/居右，默认居中），含配图的试卷也支持按题逐个调整或全卷统一调整配图比例与显示位置，保存后同步用于显示和打印，并随备份恢复。拍照原图可在「查看原题图片」中核对，也可替换或补充上传。重绘配图时先打开原图框选配图区域，只把该区域交给 AI，避免整张照片中的小配图因分辨率不足而失真；也可旋转后再框选。
-- **🧩 配图原图**：识别时会同时保存裁剪出的原配图；化学结构式、复杂示意图等 AI 难以重绘准确的图形，可在详情页把配图来源切换为「原图」，与拍照原图完全一致；简单几何图继续用「AI 重绘」更清晰。原图随备份导出导入（第 17 版起），详情页、打印和试卷均按所选来源显示。
+- **🧭 题型专属讲解（预览版）**：重新生成解答时，系统会根据已识别的学科和题型加载对应的讲解范式；当前覆盖数学计算题、数学解答题和英语阅读理解，未命中时自动使用通用规则。
+- **🖼️ 题目配图**：识别时 AI 先定位配图，再把配图区域裁剪出来单独用 SVG 重绘（先逐项列出线段、箭头和标注再作图，生成后校验 SVG 是否合法）；有配图的错题可在详情页设置「配图显示比例」（10%～200%，默认 100%）与「配图显示位置」（居左/居中/居右，默认居中），含配图的试卷也支持按题逐个调整或全卷统一调整配图比例与显示位置，保存后同步用于显示和打印，并随备份恢复。拍照原图可在「查看原题图片」中核对，也可替换或补充上传。重绘配图时先打开原图框选配图区域，只把该区域交给 AI，避免整张照片中的小配图因分辨率不足而失真；也可旋转后再框选。
+- **🧩 配图原图**：识别时会同时保存裁剪出的原配图；化学结构式、复杂示意图等 AI 难以重绘准确的图形，可在详情页把配图来源切换为「原图」，与拍照原图完全一致；简单几何图继续用「AI 重绘」更清晰。试卷会保留来源错题的裁剪原配图，试卷详情和打印预览都可切换「原图 / AI 重绘」。错题原配图从备份第 17 版起保存，试卷的原图与来源快照从第 19 版起保存，手机底栏入口偏好从第 20 版起保存。
 - **⭐ 难度星级**：导入时由 AI 参考《高思学校竞赛数学导引》的星级标准评定 1~5 星（一二星为课本及校内拔高，三四星为常规奥数，五星为竞赛压轴），可手动修改；4 星及以上默认归入 B 卷。
 - **🏷️ 知识点标签**：错题本创建时选择学段（小学/初中/高中/大学）和学科（创建后不可修改），小学支持数学、英语、语文和科学；内置语文章节与知识点覆盖小学一年级至六年级及初高中，科学知识点来自导入的人教版课标体系，未导入时由 AI 自行命名。本错题本内的题目由 AI 从该学段、该学科的全部知识点中选择标签；大学没有内置课程知识点，由 AI 自行命名并保存为该错题本的标签，再次识别优先复用已有标签。支持自定义标签，单题或整本错题本可让 AI 重新识别知识点和难度。管理员可在「设置 → 用户管理 → 人教版课标知识点」上传 [cn-math-taxonomy](https://github.com/xiaoyang111222/cn-math-taxonomy) 的 [topics.json](https://raw.githubusercontent.com/xiaoyang111222/cn-math-taxonomy/HEAD/data/topics.json)，导入「人教版课标体系」（以数学为主，也包含语文、英语、科学、物理、化学、生物、历史、地理、道德与法治，约 3300 个知识点）；导入后创建错题本时可选择标签体系，与内置体系并存，创建后不可更改。
 
@@ -174,8 +175,8 @@
 - **📈 掌握概率**：根据举一反三和试卷的作答历史，由 AI 评估每道题的已掌握概率。错题分为三种状态：没有举一反三记录的为「待复习」，有记录且掌握概率低于已掌握阈值的为「复习中」，达到阈值的为「已掌握」。阈值默认 50%，每个用户可在设置中单独调整。
 - **📅 今日复习**：按 1、2、4、7、15、30 天的艾宾浩斯间隔安排每道错题的复习，做对进入下一轮间隔，做错从头开始。导航栏的「复习」页列出今天到期的错题（最早到期的在前），可「按顺序复习」逐题查看答案并记录做对或做错（做对直接标记为已掌握，做错填写错误原因），顶部和底部都能翻页；首页显示今日待复习数量。
 - **🧾 错题试卷**：从右侧抽屉组卷：选择错题本、知识点、题型和掌握情况，题数默认 10 可改为 1–50；可按「上次答对/上次答错」筛选（只看最近一次作答，未作答不算），勾选「按知识点均衡抽取」在所选知识点间轮流分配题数；可选择「举一反三」（AI 生成新题）或「原题直出」（直接使用原题，不消耗 AI 额度，立即可打印）；可打开「同时生成 A/B 卷」一次生成两份题目互不重复的平行卷；每道题可单独设置分值，试卷自动汇总总分，详情页可开启「按题型分大题」按选择题、填空题等分组排版；做完后可按题录入结果，结果计入原题的作答历史。
-- **🖨️ 错题打印**：筛选后打印错题，可选打印题目文字或原图、答案、解析、知识点，调节图片比例以及全局/单题留白高度（单题留白自动保存），选择题选项按长度自动横排，可直接打印或保存为 PDF。
-- **📱 手机底部导航**：底部只保留录入、错题本、练习、统计 4 个按钮，按钮更大更易点按；复习、试卷、真题库从「练习」页顶部的快捷入口进入（复习也可点首页「今日待复习」卡片），复习页与练习页共用底部「练习」按钮高亮；桌面端顶部导航仍显示全部 7 项。
+- **🖨️ 错题打印**：筛选后打印错题，可选打印题目文字或原图、答案、解析、知识点，题目文字模式在没有可用配图时会保留原图，调节图片比例以及全局/单题留白高度（单题留白自动保存），选择题选项按长度自动横排，可直接打印或保存为 PDF。
+- **📱 手机底部导航**：底部默认显示录入、错题本、练习、试卷、统计 5 个按钮，按钮更大更易点按；可在「设置 → 通用」把第 4 个按钮切换为「复习」，复习、试卷和真题库也可从「练习」页顶部的快捷入口进入（复习还可点首页「今日待复习」卡片），桌面端顶部导航仍显示全部 7 项。
 
 ### 管理与统计
 
@@ -192,7 +193,7 @@
 - **📈 匿名遥测与使用协议**：管理员在初始化时同意[使用协议](doc/EULA.md)（飞牛OS 在安装向导中勾选），实例默认每 6 小时向错题本收集服务发送一批匿名的功能使用统计和错误指纹，不含用户或实例标识、IP、题目内容、AI 对话或错误原文；存量实例升级后默认不外发，管理员登录时可从提示横幅查看协议后开启。「设置 → 用户管理 → 隐私与遥测」可关闭外发、开启本地记录（只保存在本机，供排查问题）、改为自建收集服务，并查看本实例收集了什么；设置 `TELEMETRY_DISABLED=true` 强制全部关闭。协议升级后管理员需重新同意，期间暂停外发，普通用户不受影响。详见[隐私说明](doc/PRIVACY.md)与[设计](doc/TELEMETRY_DESIGN.md)。
 - **🐞 调试日志**：遇到问题时，管理员在「设置 → 用户管理」中打开调试模式，复现问题后导出调试日志（JSON）发给作者。调试模式下记录包括 debug 级别在内的全部服务端日志和前端错误，导出时自动去除 API Key、密码和令牌；日志只保存在内存中，24 小时后自动关闭，服务重启后清空。
 - **🔌 Openclaw 集成**：外部 Openclaw agent 可通过 `POST /api/openclaw/batch-upload` 批量上传题目图片，配置见[环境变量](#-环境变量)。
-- **🧩 MCP 服务**：外部 agent 可通过 MCP Streamable HTTP 端点 `POST /api/mcp` 读写错题本、错题、知识点与复习数据；配置 `MCP_API_KEY` 与 `MCP_USER_EMAIL` 后启用，工具与接入方式见 [MCP 服务](doc/wiki/MCP-Server.md)。
+- **🧩 MCP 服务**：外部 agent 可通过 MCP Streamable HTTP 端点 `POST /api/mcp` 查询错题本、错题、知识点和今日待复习题，也可创建错题本和带配图的错题；配置 `MCP_API_KEY` 与 `MCP_USER_EMAIL` 后启用，工具与接入方式见 [MCP 服务](doc/wiki/MCP-Server.md)。
 
 ## 🚀 快速开始
 
@@ -399,6 +400,9 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | :--- | :--- | :--- | :--- |
 | MiniMax | [MiniMax 开放平台](https://platform.minimax.cn) | `https://api.minimax.cn/v1`（国际站 `https://api.minimax.io/v1`） | `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | **免费账号**，网页登录，见[下文](#minimax-code-oauth) | 固定接口 | `MiniMax-M3.1-Flash` |
+| MiniMax Code OAuth（国际站） | **免费账号**，需海外网络，单独网页登录，见[下文](#minimax-code-oauth国际站) | `https://agent.minimax.io/mavis/api/v1/llm` | `MiniMax-M3.1-Flash` |
+| 硅基流动 SiliconFlow（国内站） | 实名认证后有**免费文字模型**，见[下文](#硅基流动) | `https://api.siliconflow.cn/v1` | `THUDM/GLM-Z1-9B-0414` |
+| 硅基流动（国际站） | 新用户 **$1 赠金**，按量付费，见[下文](#硅基流动) | `https://api.siliconflow.com/v1` | `Qwen/Qwen2.5-VL-7B-Instruct` |
 | 智谱 GLM | [智谱开放平台](https://open.bigmodel.cn) | `https://open.bigmodel.cn/api/paas/v4`（国际站 `https://api.z.ai/api/paas/v4`） | `glm-5.3-flash`，默认 `reasoning_effort: low`（思考型模型默认深思考会把图片识别拖慢到分钟级） |
 | 智谱 GLM Coding Plan | [Z 计划](https://docs.bigmodel.cn/cn/guide/develop/claude/introduction)包月套餐 | `https://open.bigmodel.cn/api/coding/paas/v4`（不要改成 `api/paas/v4`，否则不计入套餐） | `glm-5.3-flash`，默认 `reasoning_effort: low` |
 | DeepSeek | [DeepSeek 开放平台](https://platform.deepseek.com) | `https://api.deepseek.com` | `deepseek-v4-flash` |
@@ -412,10 +416,11 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | Ollama（本地） | 本机运行 [Ollama](https://ollama.com)，需支持图片输入的模型 | `http://localhost:11434/v1`（Docker 部署填宿主机地址） | `qwen3-vl:8b` |
 | Anthropic 及兼容接口 | [Claude Console](https://platform.claude.com/) | `https://api.anthropic.com`（不含 `/v1`） | `claude-sonnet-5-5` |
 | Azure OpenAI | Azure 门户 → OpenAI 资源 → 密钥和终结点 | 填写资源 Endpoint 和部署名称 | 部署名称 |
-| OpenAI 及兼容接口 | [OpenAI Platform](https://platform.openai.com/api-keys)，可添加多个配置并切换 | `https://api.openai.com/v1` | `gpt-6.1-sol` |
+| OpenAI 及兼容接口（Chat Completions） | [OpenAI Platform](https://platform.openai.com/api-keys)，可添加多个配置并切换 | `https://api.openai.com/v1` | `gpt-6.1-sol` |
+| OpenAI Responses API（通用） | [OpenAI Platform](https://platform.openai.com/api-keys) 或兼容网关的 API Key | `https://api.openai.com/v1` | `gpt-6.1-sol` |
 | Google Gemini | [Google AI Studio](https://aistudio.google.com/apikey) | 官方地址 | `gemini-2.5-flash`（推荐 `gemini-3.8-flash`） |
 
-> **兼容接口**：OpenAI 提供商可接入任何 OpenAI API 格式的第三方服务（如硅基流动），Anthropic 提供商可接入兼容 Messages API 的服务；把 Base URL 改为服务商地址，模型填写对应平台的完整模型 ID。推理模型返回的思考内容会被自动忽略。
+> **兼容接口**：在「设置 → AI 设置」中，Chat Completions 服务选择「OpenAI / Compatible」，Responses 服务选择「OpenAI Responses API（通用）」，Anthropic Messages 服务选择「Anthropic / Compatible」。Responses 渠道可把 Base URL 改为网关地址（如 `https://api.example.com/v1`），应用会拼接 `/responses`。模型填写对应服务的完整 ID；识图需要支持图片输入的模型。推理模型返回的思考内容会被自动忽略。
 
 > **本地 Ollama**：先在 Ollama 中拉取支持图片输入的模型（如 `ollama pull qwen3-vl:8b`），再在「设置 → AI 设置」选择 Ollama，模型留空即用默认值。应用在服务端发起调用，Docker 部署时 `localhost` 指向容器，Base URL 要填宿主机的局域网地址（如 `http://192.168.1.10:11434/v1`）；Ollama 默认只监听本机时，需设置 `OLLAMA_HOST=0.0.0.0` 允许局域网访问。模型越小识别越快，但准确率取决于所选模型的视觉能力。
 
@@ -430,6 +435,26 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 使用方法：在“设置 → AI 设置”中选择 MiniMax Code OAuth，点击“网页登录”，在打开的 MiniMax 页面完成授权即可；设置页会显示登录状态、剩余积分和今天是否已自动签到。
 
 登录凭据保存在服务端配置目录的 `minimax-code.json`（与 `app-config.json` 同目录，不随数据备份导出），Access Token 到期前自动续期。登录后服务每小时检查一次，当天（北京时间）还没签到时自动领取 MiniMax Code 的签到积分，也可以在设置页关闭自动签到或手动立即签到。该渠道使用 MiniMax Code 桌面客户端的登录方式（OAuth 设备码授权），不是官方开放接口，MiniMax 可能随时调整或限制；请遵守 MiniMax 的服务条款。
+
+#### MiniMax Code OAuth（国际站）
+
+**与国内站分开登录**：国际站使用 `account.minimax.io` 和 `agent.minimax.io`，账号、积分与登录凭据都和国内站（`account.minimax.cn` / `agent.minimax.cn`）分开，不能互换使用。在「设置 → AI 设置」选择「MiniMax Code OAuth（国际站）」后单独网页登录，设置页同样显示登录状态、剩余积分和今日签到，并独立开关每日自动签到。
+
+- **需要海外网络**：从中国大陆访问 `account.minimax.io` 会被重定向到国内站，拿到的凭据在国际站接口无效；请通过海外网络或代理使用，并让服务端走同一网络（可用 `HTTPS_PROXY`）。
+- **固定接口与默认模型**：模型接口为 `https://agent.minimax.io/mavis/api/v1/llm`，默认模型同样是 `MiniMax-M3.1-Flash`；可选 `MiniMax-M3`、`MiniMax-M3.1-Flash-Preview` 等国际站模型，以设置页的模型提示为准。
+- **配置分开**：国际站模型和自动签到用 `MINIMAX_CODE_GLOBAL_MODEL`、`MINIMAX_CODE_GLOBAL_AUTO_CHECKIN`，国内站继续用 `MINIMAX_CODE_MODEL`、`MINIMAX_CODE_AUTO_CHECKIN`。两个站的凭据都存放在 `minimax-code.json` 的不同区块中，互不影响。
+
+登录、签到和积分规则与国内站相同，也使用 MiniMax Code 桌面客户端的 OAuth 设备码授权，不是官方开放接口；MiniMax 可能随时调整或限制，请遵守其服务条款。
+
+#### 硅基流动
+
+硅基流动分为国内站和国际站两个渠道，分别使用独立的账号、API Key 和地址，默认模型也不同。
+
+- **国内站（`https://api.siliconflow.cn/v1`）**：注册并完成实名认证后，可使用免费的文字模型，如 `THUDM/GLM-Z1-9B-0414`（默认）、`THUDM/GLM-4-9B-0414`、`Qwen/Qwen2.5-7B-Instruct`、`Qwen/Qwen3-8B`、`Qwen/Qwen3.5-4B`、`deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`、`XingChenAGI/Xing4.0-29B`。这些模型都只支持文字输入，且有固定速率限制，适合解题、判分、知识点等纯文字任务。
+- **国内站图片识别**：免费模型不能看图。拍照识别、配图重绘等需要图片输入的任务，可在同一 Key 下改用付费的视觉模型，或在「渠道分工」中把图片识别交给其他渠道。
+- **国际站（`https://api.siliconflow.com/v1`）**：独立注册，新用户有 $1 体验赠金，之后按量付费；国际站没有长期免费的文字模型。默认模型 `Qwen/Qwen2.5-VL-7B-Instruct` 支持图片输入、价格较低，赠金可用于先体验识题与解析。
+
+两个渠道都在设置页填写 API Key，Base URL 和模型留空时使用上表默认值；API Key 分别从 [国内站控制台](https://cloud.siliconflow.cn/account/ak) 和 [国际站控制台](https://cloud.siliconflow.com/account/ak) 获取。免费模型、赠金资格和速率限制以硅基流动账户页面显示为准。
 
 #### 火山引擎（免费试用）
 
@@ -510,10 +535,12 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 
 | 环境变量 | 描述 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `AI_PROVIDER` | AI 提供商 | `minimax` | 可选 `minimax`、`minimax-code`、`glm`、`glm-coding`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`anthropic`、`azure`、`openai`、`gemini` |
+| `AI_PROVIDER` | AI 提供商 | `minimax` | 可选 `minimax`、`minimax-code`、`minimax-code-global`、`glm`、`glm-coding`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`siliconflow`、`siliconflow-global`、`ollama`、`anthropic`、`azure`、`openai`、`openai-responses`、`gemini` |
 | `MINIMAX_API_KEY` / `MINIMAX_BASE_URL` / `MINIMAX_MODEL` | MiniMax | 地址 `https://api.minimax.cn/v1`，模型 `MiniMax-M3.1-Flash` | 地址和模型可留空 |
-| `MINIMAX_CODE_MODEL` | MiniMax Code 模型 | `MiniMax-M3.1-Flash` | 账号在网页设置中登录，无需 API Key |
-| `MINIMAX_CODE_AUTO_CHECKIN` | MiniMax Code 每日自动签到 | `true` | 设为 `false` 关闭 |
+| `MINIMAX_CODE_MODEL` | MiniMax Code（国内站）模型 | `MiniMax-M3.1-Flash` | 账号在网页设置中登录，无需 API Key |
+| `MINIMAX_CODE_AUTO_CHECKIN` | MiniMax Code（国内站）每日自动签到 | `true` | 设为 `false` 关闭 |
+| `MINIMAX_CODE_GLOBAL_MODEL` | MiniMax Code（国际站）模型 | `MiniMax-M3.1-Flash` | 国际站单独网页登录，需海外网络 |
+| `MINIMAX_CODE_GLOBAL_AUTO_CHECKIN` | MiniMax Code（国际站）每日自动签到 | `true` | 设为 `false` 关闭 |
 | `GLM_API_KEY` / `GLM_BASE_URL` / `GLM_MODEL` | 智谱 GLM | 地址 `https://open.bigmodel.cn/api/paas/v4`，模型 `glm-5.3-flash`（请求自动带 `reasoning_effort: low`） | 地址和模型可留空 |
 | `GLM_CODING_API_KEY` / `GLM_CODING_BASE_URL` / `GLM_CODING_MODEL` | 智谱 GLM Coding Plan | 地址 `https://open.bigmodel.cn/api/coding/paas/v4`，模型 `glm-5.3-flash` | Z 计划包月套餐；不要改成 `api/paas/v4`（不计入套餐，会按量计费）；套餐不含语音合成 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` / `DEEPSEEK_MODEL` | DeepSeek | 地址 `https://api.deepseek.com`，模型 `deepseek-v4-flash` | 地址和模型可留空 |
@@ -524,6 +551,8 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | `VOLCENGINE_AGENT_API_KEY` / `VOLCENGINE_AGENT_BASE_URL` / `VOLCENGINE_AGENT_MODEL` | 火山引擎 Agent Plan | 地址 `https://ark.cn-beijing.volces.com/api/plan/v3`，模型 `doubao-seed-evolving` | Agent Plan 管理页的专属 API Key；套餐含豆包语音合成 |
 | `VOLCENGINE_CODING_API_KEY` / `VOLCENGINE_CODING_BASE_URL` / `VOLCENGINE_CODING_MODEL` | 火山引擎 Coding Plan | 地址 `https://ark.cn-beijing.volces.com/api/coding/v3`，模型 `doubao-seed-evolving` | 方舟 API Key；不要改成 `/api/v3`（不计入套餐）；套餐不含语音合成 |
 | `VOLCENGINE_FREE_API_KEY` / `VOLCENGINE_FREE_BASE_URL` / `VOLCENGINE_FREE_MODEL` | 火山引擎（免费试用） | 地址 `https://ark.cn-beijing.volces.com/api/v3`，模型 `doubao-seed-evolving` | 新用户免费推理额度，开启「安心体验模式」后用完自动暂停 |
+| `SILICONFLOW_API_KEY` / `SILICONFLOW_BASE_URL` / `SILICONFLOW_MODEL` | 硅基流动 SiliconFlow（国内站） | 地址 `https://api.siliconflow.cn/v1`，模型 `THUDM/GLM-Z1-9B-0414` | 实名认证后免费文字模型；图片识别需付费视觉模型或改用其他渠道 |
+| `SILICONFLOW_GLOBAL_API_KEY` / `SILICONFLOW_GLOBAL_BASE_URL` / `SILICONFLOW_GLOBAL_MODEL` | 硅基流动（国际站） | 地址 `https://api.siliconflow.com/v1`，模型 `Qwen/Qwen2.5-VL-7B-Instruct` | 独立账号；新用户 $1 赠金，之后按量付费 |
 | `VOLCENGINE_TTS_API_KEY` | 豆包语音 API Key | 无 | 云端语音选择火山引擎豆包语音时使用，与火山方舟的 Key 不同 |
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 无 | 从 [Claude Console](https://platform.claude.com/) 获取 |
 | `ANTHROPIC_BASE_URL` | API 地址 | `https://api.anthropic.com` | 兼容服务填写不含 `/v1` 的地址 |
@@ -536,6 +565,7 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 | `OPENAI_API_KEY` | OpenAI API Key | 无 | 从 [OpenAI Platform](https://platform.openai.com/api-keys) 获取 |
 | `OPENAI_BASE_URL` | OpenAI API 地址 | `https://api.openai.com/v1` | 使用兼容服务时填写其地址 |
 | `OPENAI_MODEL` | OpenAI 模型 | `gpt-6.1-sol` | 兼容服务填写对应平台的模型 ID |
+| `OPENAI_RESPONSES_API_KEY` / `OPENAI_RESPONSES_BASE_URL` / `OPENAI_RESPONSES_MODEL` | OpenAI Responses API | 地址 `https://api.openai.com/v1`，模型 `gpt-6.1-sol` | 使用 `AI_PROVIDER=openai-responses`；地址和模型可留空 |
 | `GOOGLE_API_KEY` | Gemini API Key | 无 | 从 [Google AI Studio](https://aistudio.google.com/apikey) 获取 |
 | `GEMINI_BASE_URL` | Gemini API 地址 | 官方地址 | 通常无需修改 |
 | `GEMINI_MODEL` | Gemini 模型 | `gemini-2.5-flash` | 推荐 `gemini-3.8-flash` |
@@ -582,7 +612,7 @@ GeoGebra 的文字、不等式和标签参数按共用命令清单校验，重�
 - **数据库**：[SQLite](https://www.sqlite.org/)（via [Prisma 5](https://www.prisma.io/)）
 - **样式**：[Tailwind CSS v4](https://tailwindcss.com/) + [Radix UI](https://www.radix-ui.com/)（shadcn/ui 风格组件）
 - **公式**：[KaTeX](https://katex.org/)（react-markdown + remark-math）
-- **AI**：MiniMax / MiniMax Code（网页登录）/ 智谱 GLM（含 Coding Plan）/ DeepSeek / Kimi / 千问 Qwen / 阶跃星辰 StepFun / 火山引擎豆包（含 Agent Plan、Coding Plan、免费试用）/ Anthropic（及兼容接口）/ Azure OpenAI / OpenAI（及兼容接口）/ Google Gemini
+- **AI**：MiniMax / MiniMax Code（网页登录，含国内站与国际站）/ 智谱 GLM（含 Coding Plan）/ DeepSeek / Kimi / 千问 Qwen / 阶跃星辰 StepFun / 火山引擎豆包（含 Agent Plan、Coding Plan、免费试用）/ 硅基流动 SiliconFlow（国内站、国际站）/ Ollama / Anthropic（及兼容接口）/ Azure OpenAI / OpenAI（及兼容接口）/ Google Gemini
 - **认证**：[NextAuth.js v4](https://next-auth.js.org/)
 - **测试**：Vitest（单元、集成）、Playwright（E2E）
 
@@ -640,6 +670,16 @@ E2E 启动器会在系统临时目录复制应用和依赖、执行正式迁移�
 也可以在 X 上关注作者 [@MargropMe](https://x.com/MargropMe)，获取更新动态或私信交流。
 
 欢迎提交 Issue 和 Pull Request，请先阅读[贡献指南](CONTRIBUTING.md)和[行为准则](CODE_OF_CONDUCT.md)。提问和反馈方式见[获取帮助](SUPPORT.md)，安全漏洞请按[安全策略](SECURITY.md)私下报告。各正式版的改动见[更新日志](CHANGELOG.md)。
+
+## ☕ 支持项目
+
+如果智能错题本帮你节省了整理错题和复习的时间，欢迎用支付宝请作者喝杯咖啡，或帮忙分担测试不同 AI 模型识题、解题效果的 Token 费用。感谢你的支持！
+
+<a href="doc/images/alipay-support.png"><img src="doc/images/alipay-support.png" alt="支付宝收款码，自愿支持智能错题本开发" width="320"></a>
+
+在手机上可以点开原图保存，再打开支付宝「扫一扫」从相册选取。
+
+欢迎匿名支持。如果愿意在项目感谢名单留名，可以通过上方 QQ 群私信作者，告诉我你希望展示的昵称。给项目点个 Star，或在 [Issues](https://github.com/margrop/wrong-notebook/issues) 反馈一个具体的使用问题，也很有帮助。
 
 ## 📄 许可证
 

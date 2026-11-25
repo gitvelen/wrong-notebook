@@ -3,7 +3,8 @@
  */
 import { generateUniqueShortId, isShortId } from "@/lib/short-id/short-id";
 import { resolveImportedSeqNo } from "@/lib/seq-no/seq-no";
-import { findDuplicateQuestion, recordDuplicateQuestion } from "@/lib/question/question-deduplication";
+import { findDuplicateInCandidates, loadDuplicateCandidates, recordDuplicateQuestion } from "@/lib/question/question-deduplication";
+import type { DuplicateCandidateSet } from "@/lib/question/question-deduplication";
 import { getDefaultPaperLevelGroupId, ensureDefaultPaperGroups } from "@/lib/paper-level";
 import type { NormalizedErrorItem } from "@/lib/backup/import-parser";
 import type { ImportContext } from "./types";
@@ -83,7 +84,7 @@ async function resolvePaperLevel(
     return resolved;
 }
 
-/** 关联 tags：优先按备份 ID 还原具体节点，旧备份再按体系和名字兜底。 */
+    /** 关联 tags：优先按备份 ID 还原具体节点，旧备份再按学科、体系和名字兜底。 */
 async function connectErrorItemTags(ctx: ImportContext, createdId: string, item: NormalizedErrorItem): Promise<void> {
     const { tx, tagIdMap, systemTagIdMap, subjectTagSetMap, tagBySetAndName, tagNameMap, stats } = ctx;
     const raw = item.raw;
@@ -96,8 +97,8 @@ async function connectErrorItemTags(ctx: ImportContext, createdId: string, item:
         } else if (systemTagIdMap.has(tag.id)) {
             tagConnections.push({ id: systemTagIdMap.get(tag.id)! });
         } else {
-            const bySet = tagBySetAndName.get(`${itemTagSet}::${tag.name}`);
-            const byName = tagNameMap.get(tag.name);
+            const bySet = tagBySetAndName.get(`${tag.subject}::${itemTagSet}::${tag.name}`);
+            const byName = tagNameMap.get(`${tag.subject}::${tag.name}`);
             const matched = bySet || byName;
             if (matched) {
                 tagConnections.push({ id: matched });
@@ -119,6 +120,7 @@ async function connectErrorItemTags(ctx: ImportContext, createdId: string, item:
 /** 4. 导入 error items */
 export async function importErrorItems(ctx: ImportContext): Promise<void> {
     const { tx, user, importAll, normalized, stats, masteryIds, evaluatedIds, errorItemIdMap, errorItemOwnerMap, subjectIdMap } = ctx;
+    const candidatesByUser = new Map<string, DuplicateCandidateSet>();
     await ensureLegacyPaperGroups(ctx);
     for (const item of normalized.errorItems) {
         const { raw } = item;
@@ -126,7 +128,12 @@ export async function importErrorItems(ctx: ImportContext): Promise<void> {
         errorItemOwnerMap.set(raw.id, targetUserId);
         const newSubjectId = raw.subjectId ? subjectIdMap.get(raw.subjectId) : undefined;
 
-        const duplicate = await findDuplicateQuestion(tx, targetUserId, raw);
+        let candidateSet = candidatesByUser.get(targetUserId);
+        if (!candidateSet) {
+            candidateSet = await loadDuplicateCandidates(tx, targetUserId);
+            candidatesByUser.set(targetUserId, candidateSet);
+        }
+        const duplicate = findDuplicateInCandidates(raw, candidateSet);
         if (duplicate) {
             const existing = await recordDuplicateQuestion(tx, targetUserId, duplicate, raw);
             // 后续复习计划和练习历史映射到原题，保留本次导入的错误快照。
@@ -157,7 +164,8 @@ export async function importErrorItems(ctx: ImportContext): Promise<void> {
                 wrongAnswerText: raw.wrongAnswerText,
                 mistakeAnalysis: raw.mistakeAnalysis,
                 mistakeStatus: raw.mistakeStatus,
-                knowledgePoints: raw.knowledgePoints,
+                // 新版备份以 tags 关系为准；没有关系时保留旧版字段供兼容读取。
+                knowledgePoints: raw.tags && raw.tags.length > 0 ? null : raw.knowledgePoints,
                 source: raw.source,
                 errorType: raw.errorType,
                 userNotes: raw.userNotes,
@@ -189,6 +197,7 @@ export async function importErrorItems(ctx: ImportContext): Promise<void> {
             },
         });
         errorItemIdMap.set(raw.id, created.id);
+        candidateSet.candidates.push({ id: created.id, questionText: created.questionText, ocrText: created.ocrText });
         if (created.masteryEvaluatedAt) evaluatedIds.add(created.id);
         stats.errorItemsCreated++;
 

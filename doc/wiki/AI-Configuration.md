@@ -9,7 +9,7 @@
 3. 测试连接；需要时从接口获取模型列表。测试失败时，除错误类型外还会显示服务商的原始报错（如额度用完、模型不存在），便于排查。
 4. 保存设置，再用一道真实题目检查图片输入、解析格式和答案质量。
 
-AI 设置、连接测试、模型列表与提示词设置只向管理员开放。OpenAI 配置支持多个实例，最多 10 个，通过当前激活实例决定实际使用的配置。
+AI 设置、连接测试、模型列表与提示词设置只向管理员开放。「OpenAI / Compatible」（Chat Completions）支持最多 10 个实例，通过当前激活实例决定实际使用的配置。Responses API 使用独立的配置。
 
 ## 提供商参数
 
@@ -17,6 +17,9 @@ AI 设置、连接测试、模型列表与提示词设置只向管理员开放�
 | --- | --- | --- |
 | MiniMax | API Key | 默认 `https://api.minimax.cn/v1`；代码默认 `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | 在设置页网页登录 MiniMax Code 账号 | 固定接口 `https://agent.minimax.cn/mavis/api/v1/llm`；代码默认 `MiniMax-M3.1-Flash` |
+| MiniMax Code OAuth（国际站） | 在设置页单独网页登录；需海外网络 | 固定接口 `https://agent.minimax.io/mavis/api/v1/llm`；代码默认 `MiniMax-M3.1-Flash` |
+| 硅基流动 SiliconFlow（国内站） | API Key；注册并实名认证后有免费文字模型 | 默认 `https://api.siliconflow.cn/v1`；代码默认免费模型 `THUDM/GLM-Z1-9B-0414`（仅文字输入） |
+| 硅基流动（国际站） | API Key；独立账号，新用户有 $1 赠金 | 默认 `https://api.siliconflow.com/v1`；代码默认 `Qwen/Qwen2.5-VL-7B-Instruct`（支持图片输入） |
 | 智谱 GLM | API Key | 默认 `https://open.bigmodel.cn/api/paas/v4`；代码默认 `glm-5.3-flash`，请求自动带 `reasoning_effort: low` 避免思考型模型深思考拖慢识别 |
 | 智谱 GLM Coding Plan | API Key（Z 计划包月订阅） | 默认 `https://open.bigmodel.cn/api/coding/paas/v4`（改成 `api/paas/v4` 不计入套餐、按量计费）；代码默认 `glm-5.3-flash`，请求自动带 `reasoning_effort: low`；套餐不含语音合成 |
 | DeepSeek | API Key | 默认 `https://api.deepseek.com`；代码默认 `deepseek-v4-flash` |
@@ -30,14 +33,17 @@ AI 设置、连接测试、模型列表与提示词设置只向管理员开放�
 | Ollama（本地） | API Key 填 `ollama`（本地服务要求非空但忽略内容），需支持图片输入的模型 | 默认 `http://localhost:11434/v1`；代码默认 `qwen3-vl:8b`。Docker 部署时填宿主机地址，并让 Ollama 监听局域网 |
 | Anthropic 或兼容接口 | API Key、模型 | 默认 `https://api.anthropic.com`；代码默认 `claude-sonnet-5-5` |
 | Azure OpenAI | API Key、Endpoint、部署名称 | API 版本默认 `2024-02-15-preview`；模型字段用于显示 |
-| OpenAI 或兼容接口 | API Key、模型 | 默认 `https://api.openai.com/v1`；代码默认 `gpt-6.1-sol` |
+| OpenAI 或兼容接口（Chat Completions） | API Key | 默认 `https://api.openai.com/v1`；代码默认 `gpt-6.1-sol` |
+| OpenAI Responses API（通用） | API Key | 默认 `https://api.openai.com/v1`；代码默认 `gpt-6.1-sol` |
 | Gemini | API Key、可用模型 | 官方 API；代码默认 `gemini-2.5-flash` |
 
 默认名称来自当前代码，不代表你的账户已开通这些模型。模型可用性、计费和能力以服务商为准。
 
 OpenAI 兼容服务的 Base URL 应包含其要求的 API 路径；Anthropic 兼容服务的 Base URL 不含 `/v1`，应用会拼接 `/v1/messages`。国产大模型官方渠道通过 OpenAI 兼容接口调用，地址和模型留空时使用官方默认值；使用国际站时改填国际站地址。
 
-本地 Ollama 通过 OpenAI 兼容接口接入。先 `ollama pull qwen3-vl:8b` 拉取支持图片输入的模型，再在「设置 → AI 设置」选择 Ollama；Base URL 和模型留空时用默认值。应用在服务端发起调用：Docker 部署时 `localhost` 指向容器，需填宿主机的局域网地址（如 `http://192.168.1.10:11434/v1`），并把 Ollama 的 `OLLAMA_HOST` 设为 `0.0.0.0`。识别准确率取决于所选模型的视觉能力。
+接入兼容 Responses 的网关时，选择「OpenAI Responses API（通用）」，填写该网关的 API Key、Base URL（例如 `https://api.example.com/v1`）和模型 ID。应用将 Base URL 与 `/responses` 拼接；网关没有 `/models` 时可以手动填写模型名。需要识图时选择支持图片输入的模型，并用「测试连接」确认。
+
+本地 Ollama 通过 OpenAI 兼容接口接入。先 `ollama pull qwen3-vl:8b` 拉取支持图片输入的模型，再在「设置 → AI 设置」选择 Ollama；Base URL 和模型留空时用默认值。应用在服务端发起调用：Docker 部署时 `localhost` 指向容器，需填宿主机的局域网地址（如 `http://ollama-host.example.com:11434/v1`），并把 Ollama 的 `OLLAMA_HOST` 设为 `0.0.0.0`。识别准确率取决于所选模型的视觉能力。
 
 ## MiniMax Code OAuth
 
@@ -52,6 +58,26 @@ MiniMax Code OAuth 用 MiniMax Code 账号登录后调用模型，不需要 API 
 登录凭据保存在配置目录的 `minimax-code.json`，Access Token 到期前自动续期；refresh token 失效时账号区域显示“登录已失效”，重新登录即可。凭据不随数据备份导出，迁移服务器时需要重新登录。
 
 该渠道使用 MiniMax Code 桌面客户端的登录方式，不是官方开放接口，MiniMax 可能随时调整或限制，请遵守其服务条款。
+
+## MiniMax Code OAuth（国际站）
+
+国际站与国内站分开登录：账号接口为 `https://account.minimax.io`，模型接口为 `https://agent.minimax.io/mavis/api/v1/llm`，账号、积分和凭据都与国内站（`account.minimax.cn` / `agent.minimax.cn`）分开，不能互换。
+
+- **需海外网络**：从中国大陆访问 `account.minimax.io` 会被重定向到国内站，得到的凭据在国际站接口无效；请通过海外网络或代理使用，并让服务端走同一网络（如 `HTTPS_PROXY`）。
+- **登录与签到**：在“设置 → AI 设置”选择「MiniMax Code OAuth（国际站）」后单独网页登录，账号区域同样显示登录状态、剩余积分和今日签到，可独立开关每日自动签到。
+- **配置分开**：国际站的模型和自动签到使用 `MINIMAX_CODE_GLOBAL_MODEL`、`MINIMAX_CODE_GLOBAL_AUTO_CHECKIN`；国内站仍用 `MINIMAX_CODE_MODEL`、`MINIMAX_CODE_AUTO_CHECKIN`。两个站的凭据存放在 `minimax-code.json` 的不同区块中。
+- **默认模型**：`MiniMax-M3.1-Flash`；也可选 `MiniMax-M3`、`MiniMax-M3.1-Flash-Preview` 等国际站模型，以设置页的模型提示为准。
+
+该渠道同样使用 MiniMax Code 桌面客户端的 OAuth 设备码授权，不是官方开放接口；MiniMax 可能随时调整或限制，请遵守其服务条款。
+
+## 硅基流动
+
+硅基流动分为国内站和国际站两个渠道，账号、API Key、地址和默认模型都分开。
+
+- **国内站**：默认地址 `https://api.siliconflow.cn/v1`，默认免费文字模型 `THUDM/GLM-Z1-9B-0414`。注册并完成实名认证后，还可使用 `THUDM/GLM-4-9B-0414`、`Qwen/Qwen2.5-7B-Instruct`、`Qwen/Qwen3-8B`、`Qwen/Qwen3.5-4B`、`deepseek-ai/DeepSeek-R1-0528-Qwen3-8B`、`XingChenAGI/Xing4.0-29B` 等免费模型。它们都只支持文字输入且有固定速率限制，适合解题、判分、知识点等纯文字任务。
+- **国内站图片识别**：免费模型不能看图；拍照识别、配图重绘等任务可改用同一 Key 下的付费视觉模型，或在“渠道分工”中把图片识别交给其他渠道。
+- **国际站**：默认地址 `https://api.siliconflow.com/v1`，默认模型 `Qwen/Qwen2.5-VL-7B-Instruct`（支持图片输入、价格较低）。独立注册，新用户有 $1 体验赠金，之后按量付费；国际站没有长期免费的文字模型。
+- **配置项**：国内站 `SILICONFLOW_API_KEY`、`SILICONFLOW_BASE_URL`、`SILICONFLOW_MODEL`；国际站 `SILICONFLOW_GLOBAL_API_KEY`、`SILICONFLOW_GLOBAL_BASE_URL`、`SILICONFLOW_GLOBAL_MODEL`。API Key 分别从[国内站控制台](https://cloud.siliconflow.cn/account/ak)和[国际站控制台](https://cloud.siliconflow.com/account/ak)获取；免费模型、赠金资格和速率限制以账户页面显示为准。
 
 ## 云端语音讲解
 
@@ -76,12 +102,13 @@ MiniMax Code OAuth 用 MiniMax Code 账号登录后调用模型，不需要 API 
 
 ## 环境变量
 
-基础选择使用 `AI_PROVIDER`，默认 `minimax`，可选 `minimax`、`minimax-code`、`glm`、`glm-coding`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`ollama`、`anthropic`、`azure`、`openai`、`gemini`。
+基础选择使用 `AI_PROVIDER`，默认 `minimax`，可选 `minimax`、`minimax-code`、`minimax-code-global`、`glm`、`glm-coding`、`deepseek`、`kimi`、`qwen`、`stepfun`、`volcengine`、`volcengine-agent`、`volcengine-coding`、`volcengine-free`、`siliconflow`、`siliconflow-global`、`ollama`、`anthropic`、`azure`、`openai`、`openai-responses`、`gemini`。
 
 | 提供商 | 配置项 |
 | --- | --- |
 | MiniMax | `MINIMAX_API_KEY`、`MINIMAX_BASE_URL`、`MINIMAX_MODEL` |
 | MiniMax Code OAuth | `MINIMAX_CODE_MODEL`、`MINIMAX_CODE_AUTO_CHECKIN`（账号只能在网页中登录） |
+| MiniMax Code OAuth（国际站） | `MINIMAX_CODE_GLOBAL_MODEL`、`MINIMAX_CODE_GLOBAL_AUTO_CHECKIN`（单独网页登录；需海外网络） |
 | 智谱 GLM | `GLM_API_KEY`、`GLM_BASE_URL`、`GLM_MODEL` |
 | 智谱 GLM Coding Plan | `GLM_CODING_API_KEY`、`GLM_CODING_BASE_URL`、`GLM_CODING_MODEL` |
 | DeepSeek | `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` |
@@ -92,11 +119,14 @@ MiniMax Code OAuth 用 MiniMax Code 账号登录后调用模型，不需要 API 
 | 火山引擎 Agent Plan | `VOLCENGINE_AGENT_API_KEY`、`VOLCENGINE_AGENT_BASE_URL`、`VOLCENGINE_AGENT_MODEL` |
 | 火山引擎 Coding Plan | `VOLCENGINE_CODING_API_KEY`、`VOLCENGINE_CODING_BASE_URL`、`VOLCENGINE_CODING_MODEL` |
 | 火山引擎（免费试用） | `VOLCENGINE_FREE_API_KEY`、`VOLCENGINE_FREE_BASE_URL`、`VOLCENGINE_FREE_MODEL` |
+| 硅基流动 SiliconFlow（国内站） | `SILICONFLOW_API_KEY`、`SILICONFLOW_BASE_URL`、`SILICONFLOW_MODEL` |
+| 硅基流动（国际站） | `SILICONFLOW_GLOBAL_API_KEY`、`SILICONFLOW_GLOBAL_BASE_URL`、`SILICONFLOW_GLOBAL_MODEL` |
 | Ollama（本地） | `OLLAMA_API_KEY`（可填 `ollama`）、`OLLAMA_BASE_URL`、`OLLAMA_MODEL` |
 | 豆包语音（云端语音） | `VOLCENGINE_TTS_API_KEY` |
 | Anthropic | `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、`ANTHROPIC_MODEL` |
 | Azure | `AZURE_OPENAI_API_KEY`、`AZURE_OPENAI_ENDPOINT`、`AZURE_OPENAI_DEPLOYMENT`、`AZURE_OPENAI_API_VERSION`、`AZURE_OPENAI_MODEL` |
 | OpenAI | `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` |
+| OpenAI Responses API | `OPENAI_RESPONSES_API_KEY`、`OPENAI_RESPONSES_BASE_URL`、`OPENAI_RESPONSES_MODEL` |
 | Gemini | `GOOGLE_API_KEY`、`GEMINI_BASE_URL`、`GEMINI_MODEL` |
 
 如果网页里已经保存配置，仅修改环境变量可能不会改变实际生效值；先检查网页中所选提供商和激活实例。全局 AI 分析超时可在管理员“设置 → 通用”中调整，代码默认 180 秒。

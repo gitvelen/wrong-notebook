@@ -26,6 +26,12 @@ export interface ReanswerQuestionResult {
     questionType?: QuestionType | null; // AI 判断的题型，未输出或无法识别时为空
 }
 
+/** 重新解题时用于选择题型专属讲解规则的受控上下文。 */
+export interface ReanswerContext {
+    questionType?: string | null;
+    knowledgePoints?: readonly string[];
+}
+
 export type { FigureResult } from './schema';
 export type { LatexFixInput, LatexFixResult } from './latex-fix';
 export type { TextFixInput, TextFixResult } from './text-fix';
@@ -112,7 +118,7 @@ export interface AIService {
     generateSimilarQuestion(originalQuestion: string, knowledgePoints: string[], language?: 'zh' | 'en', difficulty?: DifficultyLevel, gradeSemester?: string | null, originalFigureSvg?: string | null): Promise<ParsedQuestionFromSchema>;
     /** 根据题目图片单独重绘配图 */
     generateFigureSvg(imageBase64: string, mimeType: string, questionText?: string | null): Promise<FigureResult>;
-    reanswerQuestion(questionText: string, language?: 'zh' | 'en', subject?: string | null, imageBase64?: string, gradeSemester?: string | null, candidateTags?: CandidateTags): Promise<ReanswerQuestionResult>;
+    reanswerQuestion(questionText: string, language?: 'zh' | 'en', subject?: string | null, imageBase64?: string, gradeSemester?: string | null, candidateTags?: CandidateTags, context?: ReanswerContext): Promise<ReanswerQuestionResult>;
     analyzeForGeogebra(questionText: string, answerText: string, analysis: string, previousErrors?: string): Promise<GeogebraAnalysisResult>;
     /** 只修复各字段中的 LaTeX 语法，返回 AI 修复后的字段内容 */
     fixLatex(input: LatexFixInput): Promise<LatexFixResult>;
@@ -139,6 +145,8 @@ export interface AIConfig {
     model?: string;
     /** 思考型模型的思考力度（如 GLM 的 low），未设置时不发送该参数 */
     reasoningEffort?: 'low' | 'medium' | 'high';
+    /** 附加请求头（兼容接口要求客户端标识时使用，如 MiniMax Code） */
+    headers?: Record<string, string>;
     // Azure OpenAI 特有字段
     azureDeployment?: string;   // Azure 部署名称
     azureApiVersion?: string;   // API 版本 (如 2024-02-15-preview)

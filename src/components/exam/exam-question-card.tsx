@@ -15,6 +15,8 @@ import { FigureScaleEditor } from "@/components/error-detail/figure-scale-editor
 import { ExamQuestionRegenerate } from "@/components/exam/exam-question-regenerate";
 import { ExamQuestionScoreInput } from "@/components/exam/exam-question-score-input";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useQuestionNo } from "@/contexts/QuestionNumberingContext";
+import { stripFigureDescriptions } from "@/lib/question/question-similarity";
 import type { FigureAlign } from "@/lib/figure-scale";
 import type { ExamMode, ExamQuestionDetail, PracticeResult } from "@/types/api";
 
@@ -37,6 +39,8 @@ interface ExamQuestionCardProps {
     previewFigureAlign?: FigureAlign | null;
     /** 单题保存配图显示与打印比例、位置 */
     onSaveFigureScale?: (questionId: string, figureScale: number, figureAlign: FigureAlign) => Promise<void>;
+    /** 单题切换配图来源（原图 / AI 重绘） */
+    onSaveFigureSource?: (questionId: string, source: 'svg' | 'image') => Promise<void>;
     /** 单题保存分值；null 表示清空该题分值 */
     onSaveScore?: (questionId: string, score: number | null) => Promise<void>;
 }
@@ -53,10 +57,13 @@ export function ExamQuestionCard({
     previewFigureScale,
     previewFigureAlign,
     onSaveFigureScale,
+    onSaveFigureSource,
     onSaveScore,
 }: ExamQuestionCardProps) {
     const { t } = useLanguage();
     const { timeZone } = useTimeZone();
+    const questionNo = useQuestionNo();
+    const sourceNo = questionNo({ shortId: question.sourceShortId, seqNo: question.sourceSeqNo }) ?? question.sourceShortId;
     const [showAnswer, setShowAnswer] = useState(false);
     const isEditing = editingResult !== undefined;
     // AI 错误码（如 AI_AUTH_ERROR: ...）映射为界面提示
@@ -75,11 +82,11 @@ export function ExamQuestionCard({
                     <span className="font-semibold">{displayNumber ?? question.order}.</span>
                     {question.errorItemId ? (
                         <Link href={`/error-items/${question.errorItemId}`} className="font-mono text-xs text-primary hover:underline">
-                            {t.exam.source} {question.sourceShortId}
+                            {t.exam.source} {sourceNo}
                         </Link>
                     ) : (
                         <span className="font-mono text-xs text-muted-foreground">
-                            {question.sourceShortId} · {t.exam.sourceDeleted}
+                            {sourceNo} · {t.exam.sourceDeleted}
                         </span>
                     )}
                     {question.notebookName && <Badge variant="secondary">{question.notebookName}</Badge>}
@@ -128,20 +135,29 @@ export function ExamQuestionCard({
                 )}
                 {question.status === "ready" && question.questionText && (
                     <>
-                        <MarkdownRenderer content={question.questionText} />
+                        <MarkdownRenderer content={question.figureSvg || question.figureImage
+                            ? stripFigureDescriptions(question.questionText)
+                            : question.questionText} />
                         {onSaveFigureScale ? (
                             <FigureScaleEditor
-                                key={`${question.id}-${question.figureScale ?? 100}-${question.figureAlign ?? "center"}`}
+                                key={`${question.id}-${question.figureScale ?? 100}-${question.figureAlign ?? "center"}-${question.figureSource ?? "svg"}`}
                                 svg={question.figureSvg}
+                                image={question.figureImage}
+                                source={question.figureSource}
                                 scale={question.figureScale}
                                 align={question.figureAlign}
                                 previewScaleOverride={previewFigureScale}
                                 previewAlignOverride={previewFigureAlign}
                                 onSave={(figureScale, figureAlign) => onSaveFigureScale(question.id, figureScale, figureAlign)}
+                                onSaveSource={onSaveFigureSource
+                                    ? (source) => onSaveFigureSource(question.id, source)
+                                    : undefined}
                             />
                         ) : (
                             <QuestionFigure
                                 svg={question.figureSvg}
+                                image={question.figureImage}
+                                source={question.figureSource}
                                 scale={previewFigureScale ?? question.figureScale}
                                 align={previewFigureAlign ?? question.figureAlign}
                             />

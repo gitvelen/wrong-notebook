@@ -13,7 +13,8 @@ import { TelemetryNoticeBanner } from "@/components/telemetry-notice-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { APP_BRAND, MOBILE_NAV_ITEMS, NAV_ITEMS, isBarePath } from "@/lib/app-navigation";
+import { useMobileNav } from "@/contexts/MobileNavContext";
+import { APP_BRAND, getMobileNavItems, NAV_ITEMS, isBarePath } from "@/lib/app-navigation";
 import { useEulaGate } from "@/lib/hooks/use-eula-gate";
 import { usePageTelemetry } from "@/lib/hooks/use-page-telemetry";
 import { useSetupRedirect } from "@/lib/hooks/use-setup-redirect";
@@ -23,6 +24,8 @@ import { cn } from "@/lib/utils";
 export function AppShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname() || "/";
     const { t } = useLanguage();
+    const { fourth } = useMobileNav();
+    const mobileNavItems = getMobileNavItems(fourth);
     const { data: session, status } = useSession();
     const isAdmin = session?.user?.role === "admin";
     const isBare = isBarePath(pathname);
@@ -50,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <span className="hidden text-base font-semibold tracking-tight sm:inline">{t.pageTitle.base}</span>
                     </Link>
 
-                    <nav className="ml-4 hidden items-center gap-1 md:flex">
+                    <nav className="ml-2 min-w-0 flex-1 overflow-x-auto hidden items-center gap-1 md:flex lg:ml-4">
                         {NAV_ITEMS.map((item) => {
                             const active = item.match(pathname);
                             const Icon = item.icon;
@@ -59,7 +62,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                     key={item.key}
                                     href={item.href}
                                     className={cn(
-                                        "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                                        "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-medium transition-colors lg:px-3",
                                         active
                                             ? "bg-accent text-accent-foreground"
                                             : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -75,7 +78,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
                     <div className="ml-auto flex items-center gap-1">
                         {userName && (
-                            <span className="mr-2 hidden max-w-40 items-center gap-2 truncate text-sm text-muted-foreground lg:flex">
+                            <span className="mr-2 hidden max-w-40 items-center gap-2 truncate text-sm text-muted-foreground xl:flex">
                                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                                     {userName.slice(0, 1).toUpperCase()}
                                 </span>
@@ -84,7 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         )}
                         {isAdmin && (
                             <Link href="/admin" title={t.nav.admin}>
-                                <Button variant="ghost" size="icon" className="rounded-full">
+                                <Button variant="ghost" size="icon" className="rounded-full text-foreground">
                                     <Shield className="h-5 w-5" />
                                     <span className="sr-only">{t.nav.admin}</span>
                                 </Button>
@@ -96,11 +99,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="rounded-full text-muted-foreground hover:text-destructive"
+                            className="rounded-full text-foreground hover:text-destructive"
                             onClick={() => signOut({ callbackUrl: "/login" })}
                             title={t.app.logout}
                         >
                             <LogOut className="h-5 w-5" />
+                            <span className="sr-only">{t.app.logout}</span>
                         </Button>
                     </div>
                 </div>
@@ -108,12 +112,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <TelemetryNoticeBanner enabled={isAdmin && status === "authenticated" && !eulaGate.pending} />
             <AdminViewAsBanner />
 
-            <div className="pb-20 md:pb-0">{children}</div>
+            <div className="pb-mobile-nav md:pb-0">{children}</div>
             {gate}
 
             <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-card/90 backdrop-blur-md md:hidden print:hidden">
-                <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${MOBILE_NAV_ITEMS.length}, minmax(0, 1fr))` }}>
-                    {MOBILE_NAV_ITEMS.map((item) => {
+                <div className="grid h-16" style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}>
+                    {mobileNavItems.map((item) => {
                         const active = item.match(pathname);
                         const Icon = item.icon;
                         return (

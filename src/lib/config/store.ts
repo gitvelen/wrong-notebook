@@ -21,7 +21,15 @@ function configFilePath(): string {
 /** 读取配置文件；文件不存在时返回 null（直接读取并处理 ENOENT，避免先判断再读取之间文件被改动） */
 function readConfigFile(): string | null {
     try {
-        return fs.readFileSync(configFilePath(), 'utf-8');
+        const file = configFilePath();
+        const content = fs.readFileSync(file, 'utf-8');
+        // 配置中可能包含 API Key；升级时顺便修复旧版本或宽松 umask 留下的权限。
+        try {
+            fs.chmodSync(file, 0o600);
+        } catch (error) {
+            logger.warn({ error }, 'Failed to secure config file permissions');
+        }
+        return content;
     } catch (error) {
         if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
         throw error;
@@ -31,8 +39,12 @@ function readConfigFile(): string | null {
 /** 先写临时文件再改名替换，避免其他请求读到写了一半的配置 */
 function writeConfigFile(config: unknown): void {
     const file = configFilePath();
+    const directory = path.dirname(file);
     const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.chmodSync(directory, 0o700);
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 });
+    fs.chmodSync(tmp, 0o600);
     fs.renameSync(tmp, file);
 }
 
@@ -75,6 +87,7 @@ export function getAppConfig(): AppConfig {
                 azure: { ...DEFAULT_CONFIG.azure, ...userConfig.azure },
                 anthropic: { ...DEFAULT_CONFIG.anthropic, ...userConfig.anthropic },
                 minimaxCode: { ...DEFAULT_CONFIG.minimaxCode, ...userConfig.minimaxCode },
+                minimaxCodeGlobal: { ...DEFAULT_CONFIG.minimaxCodeGlobal, ...userConfig.minimaxCodeGlobal },
                 ...mergeVendorConfigs(DEFAULT_CONFIG, userConfig),
                 routing: mergeRoutingConfig(DEFAULT_CONFIG.routing, userConfig.routing),
                 prompts: { ...DEFAULT_CONFIG.prompts, ...userConfig.prompts },
@@ -108,6 +121,7 @@ export function updateAppConfig(newConfig: Partial<AppConfig>) {
         azure: { ...currentConfig.azure, ...newConfig.azure },
         anthropic: { ...currentConfig.anthropic, ...newConfig.anthropic },
         minimaxCode: { ...currentConfig.minimaxCode, ...newConfig.minimaxCode },
+        minimaxCodeGlobal: { ...currentConfig.minimaxCodeGlobal, ...newConfig.minimaxCodeGlobal },
         ...mergeVendorConfigs(currentConfig, newConfig),
         routing: mergeRoutingConfig(currentConfig.routing, newConfig.routing),
         prompts: { ...currentConfig.prompts, ...newConfig.prompts },

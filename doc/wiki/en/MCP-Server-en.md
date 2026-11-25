@@ -1,8 +1,8 @@
 # MCP Server
 
-External agents (Claude Code, Cursor, Claude Desktop, Openclaw and others) can call this system's notebooks, questions, knowledge tags and review data through [Model Context Protocol](https://modelcontextprotocol.io/) over Streamable HTTP.
+External agents (Claude Code, Cursor, Claude Desktop, Openclaw and others) can query notebooks, questions, knowledge tags and due reviews, and create notebooks and questions with figures through [Model Context Protocol](https://modelcontextprotocol.io/) over Streamable HTTP.
 
-Endpoint: `POST /api/mcp`. It is stateless: every request returns a JSON response and no `Mcp-Session-Id` is kept; `GET` returns `405` because there is no standalone SSE stream. The target account is fixed, and every tool reads or writes only that account's data.
+Endpoint: `POST /api/mcp`. It is stateless: every request returns a JSON response and no `Mcp-Session-Id` is kept; `GET` returns `405` because there is no standalone SSE stream. Every tool accesses only the configured account. Besides querying and adding questions, tools can generate variant questions, grade answers and record answer results.
 
 ## Data flow
 
@@ -102,17 +102,27 @@ Change `method` to `tools/list` to list tools. Call a tool:
 | `create_notebook` | Create a notebook | `name`, `stage`, `subjectKey`, `tagSet` |
 | `list_questions` | Filter, search and paginate questions | `notebookId`, `query`, `tag`, `chapter`, `mastery`, `timeRange`, `gradeSemester`, `paperLevel`, `questionTypes`, `page`, `pageSize` |
 | `get_question` | Read one question's text, answer, analysis, tags and mastery status | `id` (CUID or 6-character short ID), `includeImage` |
-| `add_question` | Add a question; unknown knowledge points are created in the tag set | question text/image, `knowledgePoints`, `notebookId` or `subjectName`, `gradeSemester`, difficulty and type |
+| `add_question` | Add a question; unknown knowledge points are created in the tag set | question text/image, `knowledgePoints`, `notebookId` or `subjectName`, `gradeSemester`, difficulty and type, `figureSvg`, `figureImage`, `figureSource`, etc. |
 | `list_tags` | List knowledge tags | `subject`, `tagSet`, `query`, `flat` (leaf list by default) |
 | `list_due_reviews` | Questions due for review today | `notebookId`, `page`, `pageSize` |
 | `get_weak_tags` | Rank weak knowledge points | `notebookId`, `range` (`7d`/`30d`/`6m`/`all`), `limit` |
+| `record_practice_result` | Record one answer attempt and update mastery probability and review schedule | `errorItemId` or `practiceQuestionId`, `result` (`correct`/`wrong`/`not_attempted`), `source` (`practice`/`manual`/`review`), `takenAt`, question fields |
+| `generate_variant` | Generate one variant question synchronously and store it as the latest practice | `errorItemId`, `language`, `difficulty`, `source` (`ai`/`bank`/`bankVariant`), `bankId` |
+| `get_variant` | Read the latest generated variant of an error question | `errorItemId` |
+| `grade_answer` | Grade a student answer with AI | `practiceQuestionId` or `errorItemId`, `userAnswer`, `language` |
 
 Notes:
 
 - Tool results are JSON text; clients parse the JSON. Failures return `isError: true`.
 - `add_question` follows the same duplicate detection, grade and paper-group rules as the Add Question API. A duplicate returns `duplicate` and records another wrong attempt. When `gradeSemester` is omitted and the account uses AI grade recognition, one extra AI call counts against the daily quota; if the account has not accepted AI data consent, AI-dependent calls fail.
 - `get_question` omits the original image by default; `includeImage: true` may return a large Base64 data URL.
+- `add_question` accepts figures separately: `figureSvg` (AI redraw) and `figureImage` (the cropped original figure as a PNG data URI), with `figureSource` selecting the displayed source (`svg` by default; `image` for the original crop). `figureSvg` may embed a bitmap via `<image href="data:image/png;base64,…">` (PNG/JPEG/GIF/WebP/AVIF); external links are stripped by sanitization.
 - `list_questions` returns compact card fields (question text, tags, mastery status) without answers, animations or large images; `pageSize` is capped at 1000.
 - `list_tags` returns leaf knowledge-point names by default, ready for `add_question` `knowledgePoints`.
+- `generate_variant` and `grade_answer` wait synchronously for AI results (no background task id is returned) and each consumes one AI quota (`practice` and `grade` respectively). `generate_variant` with `source=bank` (pick directly from the question bank) consumes no quota; `source=bankVariant` picks from the bank first and still consumes one `practice` quota. When quota is exhausted or consent is missing, the tool returns `isError: true` with the error code in the text (for example `AI_QUOTA_INSUFFICIENT`).
+- `generate_variant` de-duplicates concurrent runs per item via `error-item:<id>:practice`; a running generation returns `TASK_ALREADY_RUNNING`. No matching bank question returns `BANK_NO_MATCH`. On success it returns `practiceQuestionId` and `saved`; `saved: false` means the question was generated but the history row failed to persist.
+- `get_variant` is read-only and returns `{ practice: LastPractice | null }` with question text, answer, analysis, subject, difficulty, source and generation time.
+- `record_practice_result` follows the Record Practice Result API: `practiceQuestionId` fills question fields first and is ownership-checked; `source=review` with `result=correct` marks the item mastered immediately, otherwise a background mastery evaluation is scheduled. An attempt time can be set with an offset-bearing `takenAt`.
+- `grade_answer` prefers the stored question and answer of `practiceQuestionId`; otherwise it reads the latest variant of the `errorItemId` question. The client-sent answer is graded, not trusted as the standard answer.
 
 Implementation: [MCP route](https://github.com/margrop/wrong-notebook/blob/main/src/app/api/mcp/route.ts), [tool registration](https://github.com/margrop/wrong-notebook/blob/main/src/lib/mcp/server.ts), [data access](https://github.com/margrop/wrong-notebook/blob/main/src/lib/mcp/service.ts).

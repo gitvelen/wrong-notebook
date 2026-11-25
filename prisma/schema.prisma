@@ -33,6 +33,7 @@ model User {
   enableGeogebra Boolean @default(false) // 是否显示 GeoGebra 动态演示
   enableSvgAnimation Boolean @default(true) // 是否显示 SVG 动画讲解
   themePreference String @default("system") // 界面主题：system 跟随系统、light 浅色、dark 深色
+  mobileNavFourth String @default("exams") // 手机底部第 4 个入口：exams 试卷 | review 复习
   aiDataConsentAt DateTime? // 同意将题目等数据发送给第三方 AI 服务商的时间；为空表示尚未同意，AI 功能不可用
   errorItemSeq Int @default(999) // 已分配的最大错题流水号，新错题取 +1（第一题为 1000）；删除错题不回收
 
@@ -43,6 +44,7 @@ model User {
   customTags KnowledgeTag[] // User's custom tags
   examPapers ExamPaper[]
   aiUsages   AiUsage[]
+  aiDailyUsages AiDailyUsage[]
   aiCompletions AiCompletion[]
   paperGroups PaperGroup[]
   importTasks ImportTask[]
@@ -349,6 +351,8 @@ model ExamQuestion {
   answerText    String?
   analysis      String?
   figureSvg     String?    // 新题的 SVG 配图
+  figureImage   String?    // 来源错题识别时裁剪的原配图快照（PNG data URI），可切换显示
+  figureSource  String     @default("svg") // 配图显示来源：svg（AI 重绘）| image（裁剪原图）
   figureScale   Int        @default(100) // 配图显示与打印比例，10~200%
   figureAlign   String     @default("center") // 配图显示与打印位置：left | center | right
   answerSpacePx Int?       // 打印时手动设置的题下留白高度（0~600 px），为空时按全局留白档位
@@ -371,6 +375,20 @@ model AiUsage {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+/// 每个用户按应用时区记录当天已预占的 AI 次数，供额度检查原子递增；属于运行统计，不进入备份
+model AiDailyUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day       String   // 当地日历日的 UTC 起点 ISO 字符串
+  count     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, day])
+  @@index([userId, day])
 }
 
 // 每次 AI 补全的 token 用量（含后台自动的掌握概率评估）；一次用户操作可能对应多次补全

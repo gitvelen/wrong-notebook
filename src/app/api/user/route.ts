@@ -16,12 +16,13 @@ import { MAX_MASTERY_THRESHOLD, MIN_MASTERY_THRESHOLD } from "@/lib/mastery-stat
 import { THEME_PREFERENCES } from "@/lib/theme";
 import { GRADE_RECOGNITION_MODES } from "@/lib/question/question-grade";
 import { GRADE_SEMESTERS } from "@/lib/grade-options";
+import { MOBILE_NAV_FOURTH_OPTIONS } from "@/lib/mobile-nav";
 
 const logger = createLogger('api:user');
 
 const userUpdateSchema = z.object({
     name: z.string().optional(),
-    email: z.string().optional(),
+    email: z.string().trim().toLowerCase().max(254).optional(),
     password: z.string().optional(),
     educationStage: z.preprocess((val) => (val === '' ? undefined : val), z.enum(["primary", "junior_high", "senior_high", "university"]).optional()),
     enrollmentYear: z.number().optional().nullable(),
@@ -31,6 +32,7 @@ const userUpdateSchema = z.object({
     enableGeogebra: z.boolean().optional(),
     enableSvgAnimation: z.boolean().optional(),
     themePreference: z.enum(THEME_PREFERENCES).optional(),
+    mobileNavFourth: z.enum(MOBILE_NAV_FOURTH_OPTIONS).optional(),
     questionDuplicateThreshold: z.number().min(1).max(100).multipleOf(0.01).optional(),
     masteryThreshold: z.number().int().min(MIN_MASTERY_THRESHOLD).max(MAX_MASTERY_THRESHOLD).optional(),
 });
@@ -48,7 +50,7 @@ export async function GET() {
 
     try {
         const user = await prisma.user.findUnique({
-            where: { email: session.user.email },
+            where: session.user.id ? { id: session.user.id } : { email: session.user.email },
             select: {
                 name: true,
                 email: true,
@@ -60,6 +62,7 @@ export async function GET() {
                 enableGeogebra: true,
                 enableSvgAnimation: true,
                 themePreference: true,
+                mobileNavFourth: true,
                 questionDuplicateThreshold: true,
                 masteryThreshold: true,
                 aiDataConsentAt: true,
@@ -80,10 +83,10 @@ export async function GET() {
     }
 }
 
-async function handlePatch(req: Request, { session }: AuthenticatedContext) {
+async function handlePatch(req: Request, { session, user }: AuthenticatedContext) {
     try {
         const body = await req.json();
-        const { name, email, password, educationStage, enrollmentYear, gradeRecognitionMode, fixedGradeSemester, confirmBeforeImport, enableGeogebra, enableSvgAnimation, themePreference, questionDuplicateThreshold, masteryThreshold } = userUpdateSchema.parse(body);
+        const { name, email, password, educationStage, enrollmentYear, gradeRecognitionMode, fixedGradeSemester, confirmBeforeImport, enableGeogebra, enableSvgAnimation, themePreference, mobileNavFourth, questionDuplicateThreshold, masteryThreshold } = userUpdateSchema.parse(body);
 
         const updateData: Prisma.UserUpdateInput = {};
         if (gradeRecognitionMode !== undefined) updateData.gradeRecognitionMode = gradeRecognitionMode;
@@ -106,6 +109,9 @@ async function handlePatch(req: Request, { session }: AuthenticatedContext) {
         }
         if (themePreference) {
             updateData.themePreference = themePreference;
+        }
+        if (mobileNavFourth) {
+            updateData.mobileNavFourth = mobileNavFourth;
         }
         if (typeof questionDuplicateThreshold === 'number') {
             updateData.questionDuplicateThreshold = questionDuplicateThreshold;
@@ -135,10 +141,9 @@ async function handlePatch(req: Request, { session }: AuthenticatedContext) {
             updateData.password = await hash(password, 10);
         }
 
-        const sessionEmail = session.user.email!;
         const updatedUser = await prisma.$transaction(async (tx) => {
             const updated = await tx.user.update({
-                where: { email: sessionEmail },
+                where: { id: user.id },
                 data: updateData,
                 select: {
                     id: true,
@@ -152,6 +157,7 @@ async function handlePatch(req: Request, { session }: AuthenticatedContext) {
                     enableGeogebra: true,
                     enableSvgAnimation: true,
                     themePreference: true,
+                    mobileNavFourth: true,
                     questionDuplicateThreshold: true,
                     masteryThreshold: true,
                 }

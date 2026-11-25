@@ -30,6 +30,10 @@ export const MAX_EXAM_QUESTIONS = 50;
 // 同时生成的题目数
 const GENERATION_CONCURRENCY = 3;
 
+// SQLite 单条查询的参数上限通常为 999；关联查询按 500 个错题分批，避免
+// Prisma 为 1000+ 道错题展开 relation 查询时触发参数溢出或查询引擎崩溃。
+const EXAM_SELECTION_RELATION_BATCH_SIZE = 500;
+
 export interface ExamSelection {
     subjectIds: string[];
     tagNames?: string[];
@@ -150,21 +154,48 @@ export async function selectSourceItems(userId: string, selection: ExamSelection
     if (selection.excludeIds && selection.excludeIds.length > 0) {
         where.id = { notIn: selection.excludeIds };
     }
-    const candidates = await prisma.errorItem.findMany({
-        where,
-        // 只有原题直出需要判断题干；最近一次作答用于结果筛选；标签用于按知识点均衡抽题
-        select: {
-            id: true,
-            shortId: true,
-            questionType: true,
-            difficultyStars: true,
-            questionText: selection.requireQuestionText === true,
-            knowledgePoints: true,
-            tags: { select: { name: true } },
-            practiceRecords: { select: { result: true, isCorrect: true }, orderBy: { createdAt: 'desc' }, take: 1 },
-            _count: { select: { practiceRecords: true, examQuestions: true } },
-        },
-    });
+    const candidates: Array<{
+        id: string;
+        shortId: string | null;
+        questionType: string | null;
+        difficultyStars: number | null;
+        questionText: string | null;
+        knowledgePoints: string | null;
+        tags: { name: string }[];
+        practiceRecords: { result: string | null; isCorrect: boolean | null }[];
+        _count: { practiceRecords: number; examQuestions: number };
+    }> = [];
+    // 只有原题直出需要判断题干；标签、最近一次作答和计数都在每个小批次内读取。
+    // 这样即使错题本超过 1000 道，也不会让 Prisma 把全部父级 ID 放进一次关联查询。
+    // 使用主键游标而不是不断增加 offset，避免大错题本在后续分页中重复扫描，
+    // 同时让一次选题过程中发生新增/删除时仍保持分页边界稳定。
+    let cursor: { id: string } | undefined;
+    for (;;) {
+        const page = await prisma.errorItem.findMany({
+            where,
+            orderBy: { id: 'asc' },
+            ...(cursor ? { cursor, skip: 1 } : {}),
+            take: EXAM_SELECTION_RELATION_BATCH_SIZE,
+            select: {
+                id: true,
+                shortId: true,
+                questionType: true,
+                difficultyStars: true,
+                questionText: selection.requireQuestionText === true,
+                knowledgePoints: true,
+                tags: { select: { name: true } },
+                practiceRecords: {
+                    select: { result: true, isCorrect: true },
+                    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                    take: 1,
+                },
+                _count: { select: { practiceRecords: true, examQuestions: true } },
+            },
+        });
+        candidates.push(...page);
+        if (page.length < EXAM_SELECTION_RELATION_BATCH_SIZE) break;
+        cursor = { id: page[page.length - 1].id };
+    }
     let items = candidates.map(({ _count, practiceRecords, tags, ...item }) => ({
         ...item,
         tags: tags ?? [],
@@ -220,7 +251,14 @@ async function generateQuestion(userId: string, questionId: string, difficulty: 
         where: { id: questionId },
         select: {
             errorItem: {
-                select: { questionText: true, knowledgePoints: true, gradeSemester: true, figureSvg: true, tags: { select: { name: true } } },
+                select: {
+                    questionText: true,
+                    knowledgePoints: true,
+                    gradeSemester: true,
+                    figureSvg: true,
+                    figureImage: true,
+                    tags: { select: { name: true } },
+                },
             },
         },
     });
@@ -247,6 +285,9 @@ async function generateQuestion(userId: string, questionId: string, difficulty: 
                 answerText: generated.answerText,
                 analysis: generated.analysis,
                 figureSvg: generated.figureSvg ?? null,
+                // 保留来源错题裁剪的原配图快照：AI 没画出新图时回退显示原图，也可在试卷中切换来源
+                figureImage: question.errorItem.figureImage,
+                figureSource: generated.figureSvg ? 'svg' : question.errorItem.figureImage ? 'image' : 'svg',
                 error: null,
             },
         });
@@ -372,6 +413,7 @@ export async function regenerateExamQuestion(
                     knowledgePoints: true,
                     gradeSemester: true,
                     figureSvg: true,
+                    figureImage: true,
                     tags: { select: { name: true } },
                     subject: { select: { name: true, stage: true, subjectKey: true } },
                 },
@@ -426,6 +468,8 @@ export async function regenerateExamQuestion(
                 answerText: generated.answerText,
                 analysis: generated.analysis,
                 figureSvg: generated.figureSvg ?? null,
+                figureImage: source.figureImage,
+                figureSource: generated.figureSvg ? 'svg' : source.figureImage ? 'image' : 'svg',
                 error: null,
             },
         });
@@ -542,6 +586,8 @@ export function snapshotOriginalQuestion(item: {
     answerText: string | null;
     analysis: string | null;
     figureSvg: string | null;
+    figureImage: string | null;
+    figureSource: string;
     figureScale: number;
     figureAlign: string;
     answerSpacePx: number | null;
@@ -552,6 +598,8 @@ export function snapshotOriginalQuestion(item: {
         answerText: item.answerText,
         analysis: item.analysis,
         figureSvg: item.figureSvg,
+        figureImage: item.figureImage ?? null,
+        figureSource: item.figureSource ?? 'svg',
         figureScale: item.figureScale,
         figureAlign: item.figureAlign,
         answerSpacePx: item.answerSpacePx,
@@ -568,6 +616,8 @@ const ORIGINAL_SNAPSHOT_SELECT = {
     answerText: true,
     analysis: true,
     figureSvg: true,
+    figureImage: true,
+    figureSource: true,
     figureScale: true,
     figureAlign: true,
     answerSpacePx: true,

@@ -9,7 +9,7 @@ Admins can change the AI configuration in the web settings. Once saved, later re
 3. Test the connection; fetch the model list from the API if needed. When the test fails, the provider's original error (such as an exhausted quota or a missing model) is shown along with the error type.
 4. Save, then check image input, output format and answer quality with a real question.
 
-AI settings, connection tests, model lists and prompt settings are admin-only. The OpenAI configuration supports up to 10 instances; the currently active instance decides which configuration is used.
+AI settings, connection tests, model lists and prompt settings are admin-only. “OpenAI / Compatible” (Chat Completions) supports up to 10 instances and uses the currently active instance. Responses API has its own configuration.
 
 ## Provider parameters
 
@@ -17,6 +17,9 @@ AI settings, connection tests, model lists and prompt settings are admin-only. T
 | --- | --- | --- |
 | MiniMax | API key | Defaults to `https://api.minimax.cn/v1`; code default `MiniMax-M3.1-Flash` |
 | MiniMax Code OAuth | Sign in to a MiniMax Code account on the settings page | Fixed endpoint `https://agent.minimax.cn/mavis/api/v1/llm`; code default `MiniMax-M3.1-Flash` |
+| MiniMax Code OAuth (international) | Separate browser sign-in on the settings page; overseas network required | Fixed endpoint `https://agent.minimax.io/mavis/api/v1/llm`; code default `MiniMax-M3.1-Flash` |
+| SiliconFlow (China site) | API key; free text models after registration and identity verification | Defaults to `https://api.siliconflow.cn/v1`; code default free model `THUDM/GLM-Z1-9B-0414` (text input only) |
+| SiliconFlow (international) | API key; separate account; $1 credit for new users | Defaults to `https://api.siliconflow.com/v1`; code default `Qwen/Qwen2.5-VL-7B-Instruct` (accepts images) |
 | Zhipu GLM | API key | Defaults to `https://open.bigmodel.cn/api/paas/v4`; code default `glm-5.3-flash`, with `reasoning_effort: low` sent automatically to keep thinking models fast |
 | Zhipu GLM Coding Plan | API key (monthly Coding Plan subscription) | Defaults to `https://open.bigmodel.cn/api/coding/paas/v4` (changing to `api/paas/v4` falls outside the plan and is billed per use); code default `glm-5.3-flash`, with `reasoning_effort: low` sent automatically; the plan does not include TTS |
 | DeepSeek | API key | Defaults to `https://api.deepseek.com`; code default `deepseek-v4-flash` |
@@ -30,14 +33,17 @@ AI settings, connection tests, model lists and prompt settings are admin-only. T
 | Ollama (local) | API key `ollama` (the local server requires a non-empty value but ignores it); a vision-capable model is required | Defaults to `http://localhost:11434/v1`; code default `qwen3-vl:8b`. Under Docker, use the host address and let Ollama listen on the LAN |
 | Anthropic or compatible | API key, model | Defaults to `https://api.anthropic.com`; code default `claude-sonnet-5-5` |
 | Azure OpenAI | API key, endpoint, deployment name | API version defaults to `2024-02-15-preview`; the model field is for display |
-| OpenAI or compatible | API key, model | Defaults to `https://api.openai.com/v1`; code default `gpt-6.1-sol` |
+| OpenAI or compatible (Chat Completions) | API key | Defaults to `https://api.openai.com/v1`; code default `gpt-6.1-sol` |
+| OpenAI Responses API (compatible) | API key | Defaults to `https://api.openai.com/v1`; code default `gpt-6.1-sol` |
 | Gemini | API key, an available model | Official API; code default `gemini-2.5-flash` |
 
 The default names come from the current code and do not mean these models are enabled for your account. Model availability, billing and capabilities are determined by the provider.
 
 For OpenAI-compatible services, the base URL should include the API path they require. For Anthropic-compatible services, the base URL excludes `/v1`; the app appends `/v1/messages`. The official MiniMax, GLM, DeepSeek, Kimi, Qwen, StepFun and Volcengine channels are called through the OpenAI-compatible API; leaving the endpoint and model empty uses the official defaults. Fill in the international endpoint if you use an international site.
 
-Local Ollama connects through the OpenAI-compatible API. Pull a vision-capable model first (`ollama pull qwen3-vl:8b`), then choose Ollama under **Settings → AI Provider**; leaving the base URL and model empty uses the defaults. The app calls it from the server, so under Docker `localhost` points at the container: enter the host's LAN address (for example `http://192.168.1.10:11434/v1`) and set Ollama's `OLLAMA_HOST` to `0.0.0.0`. Recognition accuracy depends on the chosen model's vision ability.
+For a gateway that supports Responses, choose “OpenAI Responses API (compatible)” and enter its API key, base URL (for example, `https://api.example.com/v1`) and model ID. The app appends `/responses` to the base URL. If the gateway has no `/models` endpoint, enter the model manually. For image recognition, choose a model that accepts images and verify it with Test Connection.
+
+Local Ollama connects through the OpenAI-compatible API. Pull a vision-capable model first (`ollama pull qwen3-vl:8b`), then choose Ollama under **Settings → AI Provider**; leaving the base URL and model empty uses the defaults. The app calls it from the server, so under Docker `localhost` points at the container: enter the host's LAN address (for example `http://ollama-host.example.com:11434/v1`) and set Ollama's `OLLAMA_HOST` to `0.0.0.0`. Recognition accuracy depends on the chosen model's vision ability.
 
 ## MiniMax Code OAuth
 
@@ -52,6 +58,26 @@ Once signed in, the server checks every hour: if today's check-in (Beijing time)
 The credentials are stored in `minimax-code.json` in the config directory, and the access token is renewed automatically before it expires. If the refresh token stops working, the account area shows "Login expired"; sign in again to fix it. The credentials are not included in data backups, so sign in again after moving to another server.
 
 This channel uses the sign-in of the MiniMax Code desktop client rather than an official open API. MiniMax may change or restrict it at any time; follow its terms of service.
+
+## MiniMax Code OAuth (international)
+
+The international site signs in separately from the China site: the account endpoint is `https://account.minimax.io` and the model endpoint is `https://agent.minimax.io/mavis/api/v1/llm`. The account, credits and credentials are separate from the China site (`account.minimax.cn` / `agent.minimax.cn`) and cannot be exchanged.
+
+- **Overseas network required**: requests from mainland China to `account.minimax.io` are redirected to the China site, and the resulting credentials do not work on the international API. Use an overseas network or proxy, and make the server use the same route (for example `HTTPS_PROXY`).
+- **Sign-in and check-in**: choose "MiniMax Code OAuth (international)" under **Settings → AI Provider** and sign in on its own page. The account area shows the login status, remaining credits and today's check-in, and daily auto check-in can be toggled independently.
+- **Separate configuration**: the international site uses `MINIMAX_CODE_GLOBAL_MODEL` and `MINIMAX_CODE_GLOBAL_AUTO_CHECKIN`; the China site keeps `MINIMAX_CODE_MODEL` and `MINIMAX_CODE_AUTO_CHECKIN`. Both credentials live in separate sections of `minimax-code.json`.
+- **Default model**: `MiniMax-M3.1-Flash`; `MiniMax-M3`, `MiniMax-M3.1-Flash-Preview` and other international models are also available, as shown by the model hint on the settings page.
+
+This channel also uses the MiniMax Code desktop client's OAuth device authorization rather than an official open API. MiniMax may change or restrict it at any time; follow its terms of service.
+
+## SiliconFlow
+
+SiliconFlow is split into China-site and international channels, with separate accounts, API keys, endpoints and default models.
+
+- **China site**: default endpoint `https://api.siliconflow.cn/v1`, default free text model `THUDM/GLM-Z1-9B-0414`. After registration and identity verification, the free models also include `THUDM/GLM-4-9B-0414`, `Qwen/Qwen2.5-7B-Instruct`, `Qwen/Qwen3-8B`, `Qwen/Qwen3.5-4B`, `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B` and `XingChenAGI/Xing4.0-29B`. They accept text only and have fixed rate limits, which suits text-only work such as solving, grading and tagging.
+- **Vision on the China site**: the free models cannot see images; for photo recognition and figure redrawing, switch to a paid vision model with the same key, or route image recognition to another channel under **Channel routing**.
+- **International**: default endpoint `https://api.siliconflow.com/v1`, default model `Qwen/Qwen2.5-VL-7B-Instruct` (accepts images and is inexpensive). Register separately; new users get a $1 trial credit, then pay as you go. There are no permanently free text models on the international site.
+- **Configuration**: the China site uses `SILICONFLOW_API_KEY`, `SILICONFLOW_BASE_URL` and `SILICONFLOW_MODEL`; the international site uses `SILICONFLOW_GLOBAL_API_KEY`, `SILICONFLOW_GLOBAL_BASE_URL` and `SILICONFLOW_GLOBAL_MODEL`. Get keys from the [China console](https://cloud.siliconflow.cn/account/ak) and the [international console](https://cloud.siliconflow.com/account/ak); free-model availability, credit eligibility and rate limits are shown in your account.
 
 ## Cloud voice narration
 
@@ -76,12 +102,13 @@ Animation narration is read by the browser's own voice (Web Speech) by default. 
 
 ## Environment variables
 
-`AI_PROVIDER` selects the provider. It defaults to `minimax` and accepts `minimax`, `minimax-code`, `glm`, `glm-coding`, `deepseek`, `kimi`, `qwen`, `stepfun`, `volcengine`, `volcengine-agent`, `volcengine-coding`, `volcengine-free`, `ollama`, `anthropic`, `azure`, `openai` and `gemini`.
+`AI_PROVIDER` selects the provider. It defaults to `minimax` and accepts `minimax`, `minimax-code`, `minimax-code-global`, `glm`, `glm-coding`, `deepseek`, `kimi`, `qwen`, `stepfun`, `volcengine`, `volcengine-agent`, `volcengine-coding`, `volcengine-free`, `siliconflow`, `siliconflow-global`, `ollama`, `anthropic`, `azure`, `openai`, `openai-responses` and `gemini`.
 
 | Provider | Variables |
 | --- | --- |
 | MiniMax | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL` |
 | MiniMax Code OAuth | `MINIMAX_CODE_MODEL`, `MINIMAX_CODE_AUTO_CHECKIN` (the account can only sign in from the web UI) |
+| MiniMax Code OAuth (international) | `MINIMAX_CODE_GLOBAL_MODEL`, `MINIMAX_CODE_GLOBAL_AUTO_CHECKIN` (separate browser sign-in; overseas network required) |
 | Zhipu GLM | `GLM_API_KEY`, `GLM_BASE_URL`, `GLM_MODEL` |
 | Zhipu GLM Coding Plan | `GLM_CODING_API_KEY`, `GLM_CODING_BASE_URL`, `GLM_CODING_MODEL` |
 | DeepSeek | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL` |
@@ -92,11 +119,14 @@ Animation narration is read by the browser's own voice (Web Speech) by default. 
 | Volcengine Agent Plan | `VOLCENGINE_AGENT_API_KEY`, `VOLCENGINE_AGENT_BASE_URL`, `VOLCENGINE_AGENT_MODEL` |
 | Volcengine Coding Plan | `VOLCENGINE_CODING_API_KEY`, `VOLCENGINE_CODING_BASE_URL`, `VOLCENGINE_CODING_MODEL` |
 | Volcengine (free trial) | `VOLCENGINE_FREE_API_KEY`, `VOLCENGINE_FREE_BASE_URL`, `VOLCENGINE_FREE_MODEL` |
+| SiliconFlow (China site) | `SILICONFLOW_API_KEY`, `SILICONFLOW_BASE_URL`, `SILICONFLOW_MODEL` |
+| SiliconFlow (international) | `SILICONFLOW_GLOBAL_API_KEY`, `SILICONFLOW_GLOBAL_BASE_URL`, `SILICONFLOW_GLOBAL_MODEL` |
 | Ollama (local) | `OLLAMA_API_KEY` (may be `ollama`), `OLLAMA_BASE_URL`, `OLLAMA_MODEL` |
 | Doubao Speech (cloud voice) | `VOLCENGINE_TTS_API_KEY` |
 | Anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` |
 | Azure | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_MODEL` |
 | OpenAI | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` |
+| OpenAI Responses API | `OPENAI_RESPONSES_API_KEY`, `OPENAI_RESPONSES_BASE_URL`, `OPENAI_RESPONSES_MODEL` |
 | Gemini | `GOOGLE_API_KEY`, `GEMINI_BASE_URL`, `GEMINI_MODEL` |
 
 If a configuration has already been saved in the web UI, changing only the environment variables may not change what is actually used; check the selected provider and active instance in the web UI first. The global AI analysis timeout can be adjusted in the admin "Settings → General"; the code default is 180 seconds.

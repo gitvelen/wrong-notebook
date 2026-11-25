@@ -17,11 +17,12 @@ const logger = createLogger('api:exams:id');
 const updateFigureSchema = z.object({
     figureScale: z.number().int().min(MIN_FIGURE_SCALE).max(MAX_FIGURE_SCALE).optional(),
     figureAlign: z.enum(FIGURE_ALIGNS).optional(),
+    figureSource: z.enum(['svg', 'image']).optional(),
     // 题下留白手动值；null 表示恢复按全局留白档位
     answerSpacePx: z.number().int().min(MIN_CUSTOM_ANSWER_SPACE_PX).max(MAX_CUSTOM_ANSWER_SPACE_PX).nullable().optional(),
     questionId: z.string().min(1).optional(),
-}).refine((data) => data.figureScale !== undefined || data.figureAlign !== undefined || data.answerSpacePx !== undefined, {
-    message: "figureScale, figureAlign or answerSpacePx is required",
+}).refine((data) => data.figureScale !== undefined || data.figureAlign !== undefined || data.figureSource !== undefined || data.answerSpacePx !== undefined, {
+    message: "figureScale, figureAlign, figureSource or answerSpacePx is required",
 });
 
 /** 分值最多一位小数（如 2.5）；null 表示清空分值 */
@@ -47,7 +48,7 @@ const updateGroupByTypeSchema = z.object({
 
 /**
  * GET /api/exams/:id
- * 试卷详情，含每题内容、来源短 ID 与历次录入的结果
+ * 试卷详情，含每题内容、来源编号（按题目编号设置显示）与历次录入的结果
  */
 export const GET = withUser(async (
     _req: Request,
@@ -62,7 +63,7 @@ export const GET = withUser(async (
                 questions: {
                     orderBy: { order: 'asc' },
                     include: {
-                        errorItem: { select: { id: true, questionType: true, subject: { select: { name: true } } } },
+                        errorItem: { select: { id: true, shortId: true, seqNo: true, questionType: true, subject: { select: { name: true } } } },
                         practiceRecords: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, result: true, createdAt: true } },
                     },
                 },
@@ -89,6 +90,7 @@ export const GET = withUser(async (
                 questionType: normalizeQuestionType(question.questionType),
                 errorItemQuestionType: normalizeQuestionType(errorItem?.questionType),
                 notebookName: errorItem?.subject?.name ?? null,
+                sourceSeqNo: errorItem?.seqNo ?? null,
                 attempts: practiceRecords,
             })),
         });
@@ -167,10 +169,11 @@ export const PATCH = withUser(async (
             return notFound("Exam paper not found");
         }
 
-        const { figureScale, figureAlign, answerSpacePx, questionId } = parsed.data;
-        const data: { figureScale?: number; figureAlign?: FigureAlign; answerSpacePx?: number | null } = {};
+        const { figureScale, figureAlign, figureSource, answerSpacePx, questionId } = parsed.data;
+        const data: { figureScale?: number; figureAlign?: FigureAlign; figureSource?: 'svg' | 'image'; answerSpacePx?: number | null } = {};
         if (figureScale !== undefined) data.figureScale = figureScale;
         if (figureAlign !== undefined) data.figureAlign = figureAlign;
+        if (figureSource !== undefined) data.figureSource = figureSource;
         if (answerSpacePx !== undefined) data.answerSpacePx = answerSpacePx;
 
         if (questionId) {

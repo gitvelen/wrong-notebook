@@ -17,7 +17,7 @@ Answers are checked when you submit. If your answer matches the reference answer
 
 Each question keeps the most recently generated variant and its solution. Reopening practice shows that question and when it was generated without calling the AI again; click "Regenerate" for a new one, which replaces the saved variant.
 
-Every generated variant is saved as an independent practice-history question. The **Practice** page (a separate navigation entry) lists all generated variants and filters them by notebook, knowledge point, difficulty and attempt status. Opening one lets you answer it directly and repeat the same question without calling AI again. Answer records reference that history question, making accuracy and attempt counts measurable; history questions survive deletion of the original mistake. If generation succeeds but saving fails, the page shows a warning; refresh or generate again. On phones the bottom navigation keeps only four buttons (Add, Notebooks, Practice, Stats), and the top of the **Practice** page offers quick entries for Review, Exams and Question Bank; the desktop top navigation still shows all seven entries.
+Every generated variant is saved as an independent practice-history question. The **Practice** page (a separate navigation entry) lists all generated variants and filters them by notebook, knowledge point, difficulty and attempt status. Opening one lets you answer it directly and repeat the same question without calling AI again. Answer records reference that history question, making accuracy and attempt counts measurable; history questions survive deletion of the original mistake. If generation succeeds but saving fails, the page shows a warning; refresh or generate again. On phones the bottom navigation defaults to five buttons (Add, Notebooks, Practice, Exams, Stats); **Settings → General** can switch the 4th button to Review. The top of the **Practice** page also offers quick entries for Review, Exams and Question Bank; the desktop top navigation still shows all seven entries.
 
 ## Mastery
 
@@ -56,6 +56,8 @@ The **Review** page in the navigation lists questions due today, and the home pa
 4. **Similar Questions** (default): the AI generates a variant for each question. Check the progress in background tasks; when it finishes, open the paper and check the questions, figures and answers. You can choose the difficulty (Easy / Medium / Hard / Challenge).
 5. **Original**: uses the original question text, answer, analysis and figure directly. No AI is called and no AI quota is consumed; the paper is ready to print immediately. No difficulty selection needed.
 6. Print or export it, and afterwards record the result for each question.
+
+Each exam question snapshots the source question's cropped original figure and figure source: when a similar-question variant has no AI-drawn SVG, the original crop is shown instead, while original-mode papers keep the source question's choice. Every question can switch between **Original image / AI redraw**, adjust scale and alignment in the exam detail or print preview. When a figure is present, the OCR-added "图示：" text description is hidden so text does not replace the image. The snapshot and source are included in backup export and import (version 19).
 
 The exam drawer remembers the mode, mastery scope, question count, difficulty, pick rule, last-result filter and balance switch you used last time in this browser; notebooks, knowledge points, question types and the title are chosen again each time.
 

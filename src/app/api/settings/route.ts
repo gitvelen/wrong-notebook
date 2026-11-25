@@ -20,6 +20,12 @@ const minimaxCodeSchema = z.object({
     autoCheckin: z.boolean().optional(),
 });
 
+const openaiResponsesSchema = z.object({
+    apiKey: z.string().trim().max(500).optional(),
+    baseUrl: z.string().trim().max(500).pipe(z.union([z.literal(''), z.url({ protocol: /^https?$/ })])).optional(),
+    model: z.string().trim().max(200).optional(),
+});
+
 /** 渠道分工：空字符串表示跟随默认渠道，其余必须为内置渠道 */
 const routingSchema = z.object({
     vision: z.union([z.literal(''), z.enum(AI_PROVIDER_IDS)]).optional(),
@@ -86,6 +92,16 @@ async function handlePost(req: Request) {
             if (!parsed.success) return badRequest('INVALID_MINIMAX_CODE_CONFIG');
             // 只保存模型和自动签到开关；登录凭据与签到记录由服务端单独管理
             body.minimaxCode = parsed.data;
+        }
+        if (body.minimaxCodeGlobal !== undefined) {
+            const parsed = minimaxCodeSchema.safeParse(body.minimaxCodeGlobal);
+            if (!parsed.success) return badRequest('INVALID_MINIMAX_CODE_CONFIG');
+            body.minimaxCodeGlobal = parsed.data;
+        }
+        if (body['openai-responses'] !== undefined) {
+            const parsed = openaiResponsesSchema.safeParse(body['openai-responses']);
+            if (!parsed.success) return badRequest('INVALID_OPENAI_RESPONSES_CONFIG');
+            body['openai-responses'] = parsed.data;
         }
         if (body.tts !== undefined) {
             const parsed = ttsSchema.safeParse(body.tts);

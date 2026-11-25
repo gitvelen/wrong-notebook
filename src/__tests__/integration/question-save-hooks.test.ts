@@ -91,6 +91,21 @@ function captureEvents(): QuestionSaveEvent[] {
 }
 
 describe('题目保存全局钩子', () => {
+    it('新题以标签关系为唯一来源，不再双写旧 knowledgePoints 字段', async () => {
+        const response = await SAVE_QUESTION(saveRequest({
+            questionText,
+            subjectId: 'math',
+            knowledgePoints: ['一元一次方程'],
+            originalImageUrl: '',
+        }));
+        expect(response.status).toBe(201);
+
+        const body = await response.json() as { id: string };
+        const item = await database.errorItem.findUniqueOrThrow({ where: { id: body.id }, include: { tags: true } });
+        expect(item.knowledgePoints).toBeNull();
+        expect(item.tags.map((tag) => tag.name)).toEqual(['一元一次方程']);
+    });
+
     it('注册表初始为空，注册后可取消注册，测试清理函数清空全部', () => {
         expect(QUESTION_SAVE_HOOKS).toHaveLength(0);
         const hook = vi.fn();
@@ -120,6 +135,55 @@ describe('题目保存全局钩子', () => {
         });
         expect(events[0].input.questionText).toBe(questionText);
         expect(await database.errorItem.count()).toBe(1);
+    });
+
+    it('拒绝把题目保存到其他用户的错题本', async () => {
+        await database.user.create({ data: { id: 'user-2', email: 'other@example.com', password: 'test-only' } });
+        await database.subject.create({ data: { id: 'other-math', name: '他人的数学', userId: 'user-2' } });
+
+        const response = await SAVE_QUESTION(saveRequest({
+            questionText,
+            subjectId: 'other-math',
+            originalImageUrl: '',
+        }));
+
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ message: 'QUESTION_SAVE_REFERENCE_INVALID' });
+        expect(await database.errorItem.count({ where: { userId: 'user-1' } })).toBe(0);
+    });
+
+    it.each([
+        { paperLevel: '', difficultyStars: 3, expectedKey: 'a' },
+        { paperLevel: ' \t', difficultyStars: 4, expectedKey: 'b' },
+        { paperLevel: '', difficultyStars: null, expectedKey: null },
+    ])('空白卷别按未选择处理（星级 $difficultyStars）', async ({ paperLevel, difficultyStars, expectedKey }) => {
+        const response = await SAVE_QUESTION(saveRequest({ questionText, subjectId: 'math', paperLevel, difficultyStars }));
+        expect(response.status, await response.clone().text()).toBe(201);
+        const { id } = await response.json() as { id: string };
+        const item = await database.errorItem.findUniqueOrThrow({ where: { id }, include: { paperGroup: true } });
+        expect(item.paperGroup?.key ?? null).toBe(expectedKey);
+    });
+
+    it('默认 B 卷停用时，未手工选卷也能保存且题目不分组', async () => {
+        await database.paperGroup.create({ data: { userId: 'user-1', key: 'b', name: 'B卷', isActive: false } });
+        const response = await SAVE_QUESTION(saveRequest({ questionText, subjectId: 'math', difficultyStars: 4, paperLevel: '' }));
+        expect(response.status, await response.clone().text()).toBe(201);
+        const { id } = await response.json() as { id: string };
+        expect(await database.errorItem.findUniqueOrThrow({ where: { id } })).toMatchObject({ paperLevel: null, difficultyStars: 4 });
+    });
+
+    it('明确指定已停用、不存在或其他账号的分组时仍拒绝保存', async () => {
+        await database.user.create({ data: { id: 'user-2', email: 'other@example.com', password: 'test-only' } });
+        await database.paperGroup.createMany({ data: [
+            { id: 'inactive-group', userId: 'user-1', name: '已停用', isActive: false },
+            { id: 'foreign-group', userId: 'user-2', name: '其他账号的组' },
+        ] });
+        for (const paperLevel of ['inactive-group', 'missing-group', 'foreign-group']) {
+            const response = await SAVE_QUESTION(saveRequest({ questionText, subjectId: 'math', paperLevel, difficultyStars: 4 }));
+            expect(response.status, paperLevel).toBe(400);
+            expect(await response.json()).toMatchObject({ message: 'QUESTION_SAVE_INVALID_PAPER_LEVEL' });
+        }
+        expect(await database.errorItem.count()).toBe(0);
     });
 
     it('saveQuestion 直接调用缺省 origin 为 manual', async () => {

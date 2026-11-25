@@ -6,6 +6,8 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { AnswerSpaceControl } from "@/components/print-preview/answer-space-control";
 import { PrintQuestionText } from "@/components/print-preview/print-question-text";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useQuestionNo } from "@/contexts/QuestionNumberingContext";
+import { stripFigureDescriptions } from "@/lib/question/question-similarity";
 import { resolveQuestionAnswerSpacePx } from "@/lib/exam/exam-answer-space";
 import type { AnswerSpaceMode } from "@/lib/exam/exam-answer-space";
 import { formatExamScore, summarizeExamScores } from "@/lib/exam/exam-score";
@@ -21,6 +23,7 @@ interface ExamPrintSheetProps {
     customSpaces: Record<string, number>;
     uniformPreview: { scale: number | null; align: FigureAlign | null };
     onSaveFigureScale: (questionId: string, figureScale: number, figureAlign: FigureAlign) => Promise<void>;
+    onSaveFigureSource: (questionId: string, source: 'svg' | 'image') => Promise<void>;
     onChangeCustomSpace: (questionId: string, px: number | null) => void;
 }
 
@@ -33,6 +36,7 @@ interface ExamPrintQuestionProps {
     customSpaces: Record<string, number>;
     uniformPreview: { scale: number | null; align: FigureAlign | null };
     onSaveFigureScale: (questionId: string, figureScale: number, figureAlign: FigureAlign) => Promise<void>;
+    onSaveFigureSource: (questionId: string, source: 'svg' | 'image') => Promise<void>;
     onChangeCustomSpace: (questionId: string, px: number | null) => void;
 }
 
@@ -45,9 +49,12 @@ function ExamPrintQuestion({
     customSpaces,
     uniformPreview,
     onSaveFigureScale,
+    onSaveFigureSource,
     onChangeCustomSpace,
 }: ExamPrintQuestionProps) {
     const { t } = useLanguage();
+    const questionNo = useQuestionNo();
+    const sourceNo = questionNo({ shortId: question.sourceShortId, seqNo: question.sourceSeqNo }) ?? question.sourceShortId;
     return (
         <section className="exam-question">
             <div className="exam-question-head">
@@ -55,17 +62,22 @@ function ExamPrintQuestion({
                     {displayNumber}.
                     {typeof question.score === 'number' && `（${formatExamScore(question.score)} ${scoreUnit}）`}
                 </span>
-                <span className="exam-source">{t.exam.sourceLabel}: {question.sourceShortId}</span>
+                <span className="exam-source">{t.exam.sourceLabel}: {sourceNo}</span>
             </div>
-            <PrintQuestionText content={question.questionText!} />
+            <PrintQuestionText content={question.figureSvg || question.figureImage
+                ? stripFigureDescriptions(question.questionText!)
+                : question.questionText!} />
             <FigureScaleEditor
-                key={`${question.id}-${question.figureScale ?? 100}-${question.figureAlign ?? "center"}`}
+                key={`${question.id}-${question.figureScale ?? 100}-${question.figureAlign ?? "center"}-${question.figureSource ?? "svg"}`}
                 svg={question.figureSvg}
+                image={question.figureImage}
+                source={question.figureSource}
                 scale={question.figureScale}
                 align={question.figureAlign}
                 previewScaleOverride={uniformPreview.scale}
                 previewAlignOverride={uniformPreview.align}
                 onSave={(figureScale, figureAlign) => onSaveFigureScale(question.id, figureScale, figureAlign)}
+                onSaveSource={(source) => onSaveFigureSource(question.id, source)}
             />
             {(() => {
                 const effectivePx = resolveQuestionAnswerSpacePx(answerSpace, question.questionText!, customSpaces[question.id]);
@@ -117,9 +129,11 @@ export const ExamPrintSheet = forwardRef<HTMLDivElement, ExamPrintSheetProps>(fu
     customSpaces,
     uniformPreview,
     onSaveFigureScale,
+    onSaveFigureSource,
     onChangeCustomSpace,
 }, ref) {
     const { t, language } = useLanguage();
+    const questionNo = useQuestionNo();
     const questions = paper.questions.filter((question) => question.status === "ready" && question.questionText);
     // 满分只统计已设分值的题目；全部未设时不显示满分行，打印与旧版一致
     const fullScore = summarizeExamScores(questions.map((question) => question.score ?? null)).total;
@@ -137,33 +151,36 @@ export const ExamPrintSheet = forwardRef<HTMLDivElement, ExamPrintSheetProps>(fu
             customSpaces={customSpaces}
             uniformPreview={uniformPreview}
             onSaveFigureScale={onSaveFigureScale}
+            onSaveFigureSource={onSaveFigureSource}
             onChangeCustomSpace={onChangeCustomSpace}
         />
     );
 
     // 答案页同样按大题分组，题号与正文一致
-    const renderAnswerKey = (items: ExamSectionItem<ExamQuestionDetail>[]) => (
-        items.map((item) => (
-            <div key={item.question.id} className="exam-question">
-                <div className="exam-question-head">
-                    <span>{item.displayNumber}.</span>
-                    <span className="exam-source">{t.exam.sourceLabel}: {item.question.sourceShortId}</span>
+    const renderAnswerKey = (items: ExamSectionItem<ExamQuestionDetail>[]) =>
+        items.map((item) => {
+            const sourceNo = questionNo({ shortId: item.question.sourceShortId, seqNo: item.question.sourceSeqNo }) ?? item.question.sourceShortId;
+            return (
+                <div key={item.question.id} className="exam-question">
+                    <div className="exam-question-head">
+                        <span>{item.displayNumber}.</span>
+                        <span className="exam-source">{t.exam.sourceLabel}: {sourceNo}</span>
+                    </div>
+                    {item.question.answerText && (
+                        <div>
+                            <span className="exam-label">{t.exam.answerLabel}{t.common.colon}</span>
+                            <MarkdownRenderer content={item.question.answerText} />
+                        </div>
+                    )}
+                    {item.question.analysis && (
+                        <div>
+                            <span className="exam-label">{t.exam.analysisLabel}{t.common.colon}</span>
+                            <MarkdownRenderer content={item.question.analysis} />
+                        </div>
+                    )}
                 </div>
-                {item.question.answerText && (
-                    <div>
-                        <span className="exam-label">{t.exam.answerLabel}{t.common.colon}</span>
-                        <MarkdownRenderer content={item.question.answerText} />
-                    </div>
-                )}
-                {item.question.analysis && (
-                    <div>
-                        <span className="exam-label">{t.exam.analysisLabel}{t.common.colon}</span>
-                        <MarkdownRenderer content={item.question.analysis} />
-                    </div>
-                )}
-            </div>
-        ))
-    );
+            );
+        });
 
     return (
         <div ref={ref} className="exam-sheet">

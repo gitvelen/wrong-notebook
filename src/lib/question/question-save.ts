@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * 保存一道题目为错题的领域逻辑：校验卷别、补充年级识别、判重与写入。
  * 「添加错题」接口和识别导入任务共用，保证两条路径的验证、判重与年级/卷别规则一致。
@@ -122,7 +124,6 @@ async function saveQuestionInner(user: User, body: ImportQuestionInput, options:
         originalImageUrl,
         subjectId: requestedSubjectId,
         subjectName,
-        paperLevel,
         difficultyStars,
         geogebraCommands,
         source,
@@ -134,9 +135,9 @@ async function saveQuestionInner(user: User, body: ImportQuestionInput, options:
     const figureImage = sanitizeFigureImage(body.figureImage);
     const hasFigure = !!body.hasFigure || figureSvg !== null || figureImage !== null;
 
-    // 校验传入的 paperLevel 是否有效（不创建分组，分组在事务内按需创建）
-    let resolvedPaperLevel: string | null = null;
-    if (paperLevel !== null && paperLevel !== undefined) {
+    // 旧版校对页会用空字符串表示未选卷别；仅校验明确指定的分组。
+    const paperLevel = body.paperLevel?.trim();
+    if (paperLevel) {
         const group = await prisma.paperGroup.findFirst({
             where: { id: paperLevel, userId: user.id, isActive: true },
             select: { id: true },
@@ -152,7 +153,26 @@ async function saveQuestionInner(user: User, body: ImportQuestionInput, options:
                 },
             };
         }
-        resolvedPaperLevel = group.id;
+    }
+
+    // subjectId 来自多个入口（网页、Openclaw、导入任务等），必须在领域层确认错题本属于当前用户。
+    // 只依赖路由层校验会让共用保存函数产生跨用户的 ErrorItem → Subject 关联。
+    if (requestedSubjectId) {
+        const subject = await prisma.subject.findFirst({
+            where: { id: requestedSubjectId, userId: user.id },
+            select: { id: true },
+        });
+        if (!subject) {
+            return {
+                ok: false,
+                error: {
+                    code: 'QUESTION_SAVE_REFERENCE_INVALID',
+                    stage: 'save',
+                    status: 409,
+                    errorCode: 'DATABASE_ERROR',
+                },
+            };
+        }
     }
 
     const duplicateBeforeRecognition = needsQuestionGradeRecognition(user, body)
@@ -167,7 +187,8 @@ async function saveQuestionInner(user: User, body: ImportQuestionInput, options:
         if (duplicate) return recordDuplicateQuestion(tx, user.id, duplicate, body);
 
         // 事务内确保默认分组存在（并发安全），并解析默认卷别
-        if (resolvedPaperLevel === null) {
+        let resolvedPaperLevel: string | null = paperLevel || null;
+        if (!resolvedPaperLevel) {
             await ensureDefaultPaperGroups(user.id, tx);
             resolvedPaperLevel = await getDefaultPaperLevelGroupId(user.id, difficultyStars, tx);
         }
@@ -213,7 +234,6 @@ async function saveQuestionInner(user: User, body: ImportQuestionInput, options:
                     wrongAnswerText: wrongAnswerText || null,
                     mistakeAnalysis: mistakeAnalysis || null,
                     mistakeStatus: normalizeMistakeStatusForSave(mistakeStatus, wrongAnswerText),
-                    knowledgePoints: JSON.stringify(tagNames),
                     gradeSemester: finalGradeSemester,
                     paperLevel: resolvedPaperLevel,
                     difficultyStars: difficultyStars ?? null,

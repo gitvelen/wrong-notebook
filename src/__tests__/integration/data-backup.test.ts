@@ -164,6 +164,22 @@ afterAll(async () => {
 });
 
 describe('数据导出后再导入（真实 SQLite）', () => {
+    it('数据库已降权时，旧的管理员 session 不能执行全量导出或导入', async () => {
+        mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
+
+        const exportResponse = await EXPORT(new Request('http://localhost/api/export?all=true'));
+        expect(exportResponse.status).toBe(403);
+        expect(await exportResponse.json()).toMatchObject({ code: 'FORBIDDEN' });
+
+        const importResponse = await IMPORT(new Request('http://localhost/api/import?all=true', {
+            method: 'POST',
+            body: '{}',
+            headers: { 'Content-Type': 'application/json' },
+        }));
+        expect(importResponse.status).toBe(403);
+        expect(await importResponse.json()).toMatchObject({ code: 'FORBIDDEN' });
+    });
+
     it('完整语文课程备份往返保留同名章节的层级及题目关联，兼容乱序与重复导入', async () => {
         await seedChineseTags(database);
         const scope = { subject: 'chinese', isSystem: true, tagSet: 'default' };
@@ -207,9 +223,9 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(await database.knowledgeTag.count({ where: { name: '我的句式笔记' } })).toBe(1);
     });
 
-    it('导出文件使用第 18 版格式，包含 tagSet、练习生成题与空的 extensions', async () => {
+    it('导出文件使用第 20 版格式，包含 tagSet、练习生成题、试卷配图与空的 extensions', async () => {
         const backup = await exportBackup();
-        expect(backup.version).toBe(18);
+        expect(backup.version).toBe(20);
         expect(backup.extensions).toEqual({});
         expect(backup.paperGroups).toContainEqual(expect.objectContaining({ id: 'group-b', key: 'b', name: 'B卷' }));
         expect(backup.systemTags).toBeDefined();
@@ -241,6 +257,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
 
     it('真题库与题目随备份往返，按 ID 去重且不影响错题', async () => {
         mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
+        await database.user.update({ where: { id: 'user-1' }, data: { role: 'admin' } });
         await database.questionBank.create({
             data: {
                 id: 'bank-1', name: '小学数学题库', stage: 'primary', subjectKey: 'math',
@@ -291,6 +308,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
 
     it('真题库导入默认不进错题，可选写入；按知识点从题库选题', async () => {
         mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
+        await database.user.update({ where: { id: 'user-1' }, data: { role: 'admin' } });
         const file = {
             format: 'wrong-notebook-question-bank',
             version: 1,
@@ -378,6 +396,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
             // 普通账号不能导入题库，管理员导入后题库全站可见
             mocks.session = { user: { id: 'user-2', email: 'member@example.com', role: 'user' }, expires: '2099-01-01' };
             expect((await postBank()).status).toBe(403);
+            await database.user.update({ where: { id: 'user-2' }, data: { role: 'admin' } });
             mocks.session = { user: { id: 'user-2', email: 'member@example.com', role: 'admin' }, expires: '2099-01-01' };
             expect((await postBank()).status).toBe(201);
             expect(await database.questionBank.count()).toBe(1);
@@ -409,12 +428,15 @@ describe('数据导出后再导入（真实 SQLite）', () => {
             expect(await database.errorItem.count({ where: { userId: 'user-1', subjectId: 'shared-math' } })).toBe(1);
 
             // 名称查重全站生效；普通账号不能删除题库
+            await database.user.update({ where: { id: 'user-1' }, data: { role: 'admin' } });
             mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
             expect((await postBank()).status).toBe(409);
+            await database.user.update({ where: { id: 'user-1' }, data: { role: 'user' } });
             mocks.session = originalSession;
             expect((await DELETE_BANK(new Request('http://localhost/api/question-banks'), {
                 params: Promise.resolve({ id: bankQuestion.bankId }),
             })).status).toBe(403);
+            await database.user.update({ where: { id: 'user-1' }, data: { role: 'admin' } });
             mocks.session = { user: { id: 'user-1', email: 'backup-test@example.com', role: 'admin' }, expires: '2099-01-01' };
             expect((await DELETE_BANK(new Request('http://localhost/api/question-banks'), {
                 params: Promise.resolve({ id: bankQuestion.bankId }),
@@ -618,7 +640,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
                 subjectIds: JSON.stringify(['math']), tagNames: JSON.stringify(['自定义标签']), resultsRecordedAt: new Date('2026-10-22T00:00:00Z'),
                 createdAt: new Date('2026-10-21T00:00:00Z'),
                 questions: { create: [
-                    { id: 'question-1', order: 0, errorItemId: 'item-1', sourceShortId: 'AbC234', status: 'ready', questionText: '试卷新题', answerText: '答', analysis: '析', figureSvg: figure, figureScale: 75, figureAlign: 'right', answerSpacePx: 180, score: 2.5 },
+                    { id: 'question-1', order: 0, errorItemId: 'item-1', sourceShortId: 'AbC234', status: 'ready', questionText: '试卷新题', answerText: '答', analysis: '析', figureSvg: figure, figureImage, figureSource: 'image', figureScale: 75, figureAlign: 'right', answerSpacePx: 180, score: 2.5 },
                     { id: 'question-2', order: 1, errorItemId: 'item-1', sourceShortId: 'AbC234', status: 'pending' },
                 ] },
             },
@@ -627,6 +649,8 @@ describe('数据导出后再导入（真实 SQLite）', () => {
             data: { userId: 'user-1', errorItemId: 'item-1', examQuestionId: 'question-1', result: 'wrong', isCorrect: false, source: 'exam', questionText: '试卷新题' },
         });
         const backup = await exportBackup();
+        expect(backup.examPapers[0].questions[0].figureImage).toBe(figureImage);
+        expect(backup.examPapers[0].questions[0].figureSource).toBe('image');
         expect(backup.examPapers[0].questions[0].figureScale).toBe(75);
         expect(backup.examPapers[0].questions[0].figureAlign).toBe('right');
         expect(backup.examPapers[0].questions[0].answerSpacePx).toBe(180);
@@ -644,7 +668,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
             resultsRecordedAt: new Date('2026-10-22T00:00:00Z'), createdAt: new Date('2026-10-21T00:00:00Z'),
         });
         expect(paper.questions).toMatchObject([
-            { order: 0, errorItemId: item.id, sourceShortId: 'AbC234', status: 'ready', questionText: '试卷新题', figureSvg: figure, figureScale: 75, figureAlign: 'right', answerSpacePx: 180, score: 2.5 },
+            { order: 0, errorItemId: item.id, sourceShortId: 'AbC234', status: 'ready', questionText: '试卷新题', figureSvg: figure, figureImage, figureSource: 'image', figureScale: 75, figureAlign: 'right', answerSpacePx: 180, score: 2.5 },
             // 导出时仍在生成的题目按失败导入，缺省配图比例为 100、位置为居中，留白按全局档位，分值未设
             { order: 1, errorItemId: item.id, status: 'failed', figureScale: 100, figureAlign: 'center', answerSpacePx: null, score: null },
         ]);
@@ -761,20 +785,20 @@ describe('数据导出后再导入（真实 SQLite）', () => {
     it('还原本人的偏好设置，不合法的单项跳过', async () => {
         await database.user.update({
             where: { id: 'user-1' },
-            data: { confirmBeforeImport: true, questionDuplicateThreshold: 75.5, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, themePreference: 'dark', gradeRecognitionMode: 'ai', fixedGradeSemester: '四年级上' },
+            data: { confirmBeforeImport: true, questionDuplicateThreshold: 75.5, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, themePreference: 'dark', mobileNavFourth: 'review', gradeRecognitionMode: 'ai', fixedGradeSemester: '四年级上' },
         });
         const backup = await exportBackup();
-        expect(backup.user).toMatchObject({ confirmBeforeImport: true, questionDuplicateThreshold: 75.5, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, themePreference: 'dark', gradeRecognitionMode: 'ai', fixedGradeSemester: '四年级上' });
+        expect(backup.user).toMatchObject({ confirmBeforeImport: true, questionDuplicateThreshold: 75.5, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, themePreference: 'dark', mobileNavFourth: 'review', gradeRecognitionMode: 'ai', fixedGradeSemester: '四年级上' });
 
         await database.user.update({
             where: { id: 'user-1' },
-            data: { confirmBeforeImport: false, questionDuplicateThreshold: 90, masteryThreshold: 50, enableGeogebra: false, enableSvgAnimation: true, themePreference: 'system', gradeRecognitionMode: 'fixed', fixedGradeSemester: null },
+            data: { confirmBeforeImport: false, questionDuplicateThreshold: 90, masteryThreshold: 50, enableGeogebra: false, enableSvgAnimation: true, themePreference: 'system', mobileNavFourth: 'exams', gradeRecognitionMode: 'fixed', fixedGradeSemester: null },
         });
         backup.user.questionDuplicateThreshold = 500;
         const { stats } = await importBackup(backup);
         expect(stats.preferencesRestored).toBe(true);
         expect(await database.user.findUniqueOrThrow({ where: { id: 'user-1' } })).toMatchObject({
-            confirmBeforeImport: true, questionDuplicateThreshold: 90, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, themePreference: 'dark',
+            confirmBeforeImport: true, questionDuplicateThreshold: 90, masteryThreshold: 70, enableGeogebra: true, enableSvgAnimation: false, mobileNavFourth: 'review', themePreference: 'dark',
             gradeRecognitionMode: 'ai', fixedGradeSemester: '四年级上',
         });
     });
@@ -917,7 +941,7 @@ describe('数据导出后再导入（真实 SQLite）', () => {
         expect(response.status).toBe(200);
         const compressed = Buffer.from(await response.arrayBuffer());
         expect([compressed[0], compressed[1]]).toEqual([0x1f, 0x8b]);
-        expect(JSON.parse(gunzipSync(compressed).toString('utf8')).version).toBe(18);
+        expect(JSON.parse(gunzipSync(compressed).toString('utf8')).version).toBe(20);
 
         await clearUserData();
         const imported = await IMPORT(new Request('http://localhost/api/import', {

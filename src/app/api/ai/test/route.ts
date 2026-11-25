@@ -4,8 +4,9 @@ import { GeminiProvider } from '@/lib/ai/gemini-provider';
 import { AzureOpenAIProvider } from '@/lib/ai/azure-provider';
 import { AnthropicProvider, DEFAULT_ANTHROPIC_MODEL } from '@/lib/ai/anthropic-provider';
 import { MiniMaxCodeProvider } from '@/lib/ai/minimax-code-provider';
-import { DEFAULT_MINIMAX_CODE_MODEL } from '@/lib/minimax-code/constants';
-import { hasDefaultApiKey, isVendorProvider, resolveVendorConfig } from '@/lib/ai/vendor-presets';
+import { DEFAULT_MINIMAX_CODE_GLOBAL_MODEL, DEFAULT_MINIMAX_CODE_MODEL } from '@/lib/minimax-code/constants';
+import { hasDefaultApiKey, isVendorProvider } from '@/lib/ai/vendor-presets';
+import { createVendorProvider } from '@/lib/ai/vendor-provider';
 import { withAdmin } from '@/lib/api-handler';
 import { aiTestBodySchema } from '@/lib/schemas/ai';
 import type { AITestResponse } from '@/lib/ai/connection-test';
@@ -28,7 +29,7 @@ async function handlePost(request: Request) {
         }
         const { provider, apiKey, baseUrl, model, endpoint, deploymentName, apiVersion, language = 'zh' } = parsed.data;
 
-        if (!apiKey && provider !== 'minimax-code' && !(isVendorProvider(provider) && hasDefaultApiKey(provider))) {
+        if (!apiKey && provider !== 'minimax-code' && provider !== 'minimax-code-global' && !(isVendorProvider(provider) && hasDefaultApiKey(provider))) {
             return NextResponse.json({ error: 'Missing provider or apiKey' }, { status: 400 });
         }
 
@@ -76,20 +77,21 @@ async function handlePost(request: Request) {
                     visionSupport = true;
                     modelInfo = model || DEFAULT_ANTHROPIC_MODEL;
                 }
-            } else if (provider === 'minimax-code') {
-                const result = await new MiniMaxCodeProvider({ model }).analyzeImage(TEST_IMAGE_BASE64, TEST_IMAGE_MIME, language);
+            } else if (provider === 'minimax-code' || provider === 'minimax-code-global') {
+                const site = provider === 'minimax-code-global' ? 'global' : 'cn';
+                const result = await new MiniMaxCodeProvider({ model }, site).analyzeImage(TEST_IMAGE_BASE64, TEST_IMAGE_MIME, language);
                 if (result.questionText || result.analysis) {
                     textSupport = true;
                     visionSupport = true;
-                    modelInfo = model || DEFAULT_MINIMAX_CODE_MODEL;
+                    modelInfo = model || (site === 'global' ? DEFAULT_MINIMAX_CODE_GLOBAL_MODEL : DEFAULT_MINIMAX_CODE_MODEL);
                 }
             } else if (isVendorProvider(provider)) {
-                const vendorConfig = resolveVendorConfig(provider, { apiKey, baseUrl, model });
-                const result = await new OpenAIProvider(vendorConfig).analyzeImage(TEST_IMAGE_BASE64, TEST_IMAGE_MIME, language);
+                const { service, config } = createVendorProvider(provider, { apiKey, baseUrl, model });
+                const result = await service.analyzeImage(TEST_IMAGE_BASE64, TEST_IMAGE_MIME, language);
                 if (result.questionText || result.analysis) {
                     textSupport = true;
                     visionSupport = true;
-                    modelInfo = vendorConfig.model;
+                    modelInfo = config.model;
                 }
             } else if (provider === 'azure') {
                 if (!endpoint || !deploymentName) {
@@ -162,18 +164,19 @@ async function handlePost(request: Request) {
                         textSupport = true;
                         modelInfo = model || DEFAULT_ANTHROPIC_MODEL;
                     }
-                } else if (provider === 'minimax-code') {
-                    const result = await new MiniMaxCodeProvider({ model }).generateSimilarQuestion('1+1=?', ['基础算术'], language, 'easy');
+                } else if (provider === 'minimax-code' || provider === 'minimax-code-global') {
+                    const site = provider === 'minimax-code-global' ? 'global' : 'cn';
+                    const result = await new MiniMaxCodeProvider({ model }, site).generateSimilarQuestion('1+1=?', ['基础算术'], language, 'easy');
                     if (result.questionText) {
                         textSupport = true;
-                        modelInfo = model || DEFAULT_MINIMAX_CODE_MODEL;
+                        modelInfo = model || (site === 'global' ? DEFAULT_MINIMAX_CODE_GLOBAL_MODEL : DEFAULT_MINIMAX_CODE_MODEL);
                     }
                 } else if (isVendorProvider(provider)) {
-                    const vendorConfig = resolveVendorConfig(provider, { apiKey, baseUrl, model });
-                    const result = await new OpenAIProvider(vendorConfig).generateSimilarQuestion('1+1=?', ['基础算术'], language, 'easy');
+                    const { service, config } = createVendorProvider(provider, { apiKey, baseUrl, model });
+                    const result = await service.generateSimilarQuestion('1+1=?', ['基础算术'], language, 'easy');
                     if (result.questionText) {
                         textSupport = true;
-                        modelInfo = vendorConfig.model;
+                        modelInfo = config.model;
                     }
                 } else if (provider === 'azure') {
                     const azure = new AzureOpenAIProvider({
