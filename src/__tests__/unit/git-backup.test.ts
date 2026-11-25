@@ -27,6 +27,7 @@ interface TestErrorItem {
 interface TestExamQuestion {
     questionText: string | null;
     originalImageUrl?: string | null;
+    figureImage?: string | null;
 }
 
 interface TestRowWithImage {
@@ -51,6 +52,7 @@ const fixture = {
             originalImageUrl: 'data:image/png;base64,AAAA',
             figureImage: 'data:image/png;base64,FFFF',
             figureSource: 'image',
+            figureSvg: '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,HHHH"/><path d="M0 0h10v10z"/></svg>',
             ocrText: null,
             questionText: '题目内容',
             answerText: null,
@@ -91,8 +93,12 @@ const fixture = {
             questions: [
                 { questionText: '有原图的题', originalImageUrl: 'data:image/jpeg;base64,BBBB' },
                 { questionText: '无原图字段的题' },
+                { questionText: '带来源错题原配图的题', figureImage: 'data:image/png;base64,GGGG' },
             ] satisfies TestExamQuestion[],
         },
+    ],
+    practiceQuestions: [
+        { id: 'pq1', userId: 'u1', questionText: '智能练习题', figureSvg: '<svg><image xlink:href="data:image/jpeg;base64,JJJJ"/></svg>' },
     ],
     paperGroups: [],
     ttsSpeeches: [],
@@ -113,7 +119,10 @@ describe('git-backup 剥离图片', () => {
 
         const questions = (output.examPapers as { questions: TestExamQuestion[] }[])[0]?.questions ?? [];
         expect(questions[0]?.originalImageUrl).toBeNull();
+        // 备份第 19 版起试卷题目带来源错题的原配图快照，同样剥离
+        expect(questions[2]?.figureImage).toBeNull();
         expect(questions[1]).not.toHaveProperty('originalImageUrl');
+        expect(questions[1]).not.toHaveProperty('figureImage');
 
         const tasks = output.importTasks as TestRowWithImage[];
         const batches = output.importBatches as TestRowWithImage[];
@@ -127,6 +136,16 @@ describe('git-backup 剥离图片', () => {
         expect(output.exportedAt).toBe('');
         expect(output.version).toBe(11);
         expect(output.user).toEqual(fixture.user);
+    });
+
+    it('SVG 配图内嵌的位图只摘除数据 URI，其余内容保留；未列举的位置同样清理', () => {
+        const output = runTransform(fixture);
+
+        const errorItems = output.errorItems as TestErrorItem[];
+        expect(errorItems[0]?.figureSvg).toBe('<svg xmlns="http://www.w3.org/2000/svg"><image href=""/><path d="M0 0h10v10z"/></svg>');
+
+        const practiceQuestions = output.practiceQuestions as { figureSvg?: string }[];
+        expect(practiceQuestions[0]?.figureSvg).toBe('<svg><image xlink:href=""/></svg>');
     });
 
     it('剥离产物不再包含任何 base64 图片数据', () => {

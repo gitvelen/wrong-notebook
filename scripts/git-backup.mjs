@@ -23,12 +23,31 @@ import { dirname } from 'node:path';
 /** 备份文件在仓库中的路径（相对 worktree 根） */
 const BACKUP_FILE = 'data-backup/backup.json';
 
+/** 文本字段（如 SVG 配图）中内嵌的位图数据 URI；上游允许 SVG 内嵌 <image href="data:image/…;base64,…"> */
+const EMBEDDED_IMAGE_URI = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\-_]+/gi;
+
+/**
+ * 递归摘除任意字符串中内嵌的位图数据 URI，兜住上游在未列举位置新增的图片；
+ * 已知字段由 stripBackupImages 按导入侧要求的值置空，这里只清其余位置。
+ */
+function stripEmbeddedImages(value) {
+    if (typeof value === 'string') return value.replace(EMBEDDED_IMAGE_URI, '');
+    if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i += 1) value[i] = stripEmbeddedImages(value[i]);
+    } else if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) value[key] = stripEmbeddedImages(value[key]);
+    }
+    return value;
+}
+
 /**
  * 剥离备份对象中的图片数据，保持结构不变：
  * - 错题原图（originalImageUrl，base64 data URL）置空字符串
  * - 错题裁剪原配图（figureImage，PNG data URI，备份第 17 版起导出）置 null，导入侧回退到 AI 重绘的 SVG
  * - 试卷题目与练习记录快照中的原题截图置 null（导入侧这两处可空）
+ * - 试卷题目的来源错题原配图快照（figureImage，备份第 19 版起导出）置 null，同样回退到 SVG
  * - 识别导入任务/多题批次的整页图片（imageData）置空字符串
+ * - 其余位置内嵌的位图数据 URI（如 SVG 配图里的 <image>）递归摘除
  * - exportedAt 清零：变更检测基于实际数据，避免每天生成仅时间戳不同的提交
  */
 export function stripBackupImages(backup) {
@@ -46,7 +65,10 @@ export function stripBackupImages(backup) {
         const rows = Array.isArray(out[key]) ? out[key] : [];
         const field = key === 'practiceRecords' ? rows : rows.flatMap((paper) => (paper && typeof paper === 'object' && Array.isArray(paper.questions)) ? paper.questions : []);
         for (const row of field) {
-            if (row && typeof row === 'object' && 'originalImageUrl' in row) row.originalImageUrl = null;
+            if (row && typeof row === 'object') {
+                if ('originalImageUrl' in row) row.originalImageUrl = null;
+                if ('figureImage' in row) row.figureImage = null;
+            }
         }
     }
     for (const key of ['importTasks', 'importBatches']) {
@@ -55,7 +77,7 @@ export function stripBackupImages(backup) {
             if (row && typeof row === 'object' && 'imageData' in row) row.imageData = '';
         }
     }
-    return out;
+    return stripEmbeddedImages(out);
 }
 
 /** 汇总响应中的 Set-Cookie 为请求用的 Cookie 头 */
